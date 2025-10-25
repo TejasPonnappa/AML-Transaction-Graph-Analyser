@@ -5,25 +5,21 @@ from pyvis.network import Network
 import os
 import matplotlib.colors as mcolors
 import torch
-from torch_geometric.data import Data 
-import codecs # <--- NEW IMPORT for encoding fix
+from torch_geometric.data import Data  # Needed to correctly load graph data structure
 
 # --- Configuration ---
 PROCESSED_DATA_PATH = 'data/processed/graph_data.pt'
 SCORES_PATH = 'outputs/suspicion_scores.csv'
-# Use the best AUC from your train.py output, or a sensible default
 BEST_MODEL_AUC = 0.5649 
 FRAUD_RATIO = 0.0013 
 
-# --- Function to Load Graph Data for Global Metrics ---
+# --- Function to Load Graph Data ---
 @st.cache_data
 def load_graph_data(path):
-    """Loads the processed graph data object for dimension extraction."""
     if not os.path.exists(path):
         st.error(f"Error: Processed graph data not found at {path}. Cannot display metrics.")
         return None
     try:
-        # Use the necessary weights_only=False fix
         return torch.load(path, weights_only=False)
     except Exception as e:
         st.error(f"Failed to load graph data for metrics. Error: {e}")
@@ -33,14 +29,12 @@ def load_graph_data(path):
 data = load_graph_data(PROCESSED_DATA_PATH)
 total_unique_accounts = data.x.size(0) if data is not None else 0
 
-
 # --- Streamlit Page Setup ---
 st.set_page_config(layout="wide", page_title="AML Transaction Graph Analyzer")
 
 # --- Function to Load Suspicion Scores CSV ---
 @st.cache_data
 def load_scores_data(path):
-    """Loads the processed suspicion scores."""
     if not os.path.exists(path):
         st.error(f"Error: Output scores file not found at {path}. Please run 'python src/predict.py' first.")
         return None
@@ -50,12 +44,10 @@ def load_scores_data(path):
 
 # --- Function to Build and Display the Network ---
 def display_network(df_filtered, threshold):
-    """Builds and displays the interactive transaction graph."""
     if df_filtered.empty:
         st.info("No transactions meet the current suspicion threshold. Try lowering the slider.")
         return
 
-    # 1. Initialize NetworkX Graph (Directed)
     G = nx.from_pandas_edgelist(
         df_filtered, 
         source='SENDER_ACCOUNT_ID', 
@@ -64,7 +56,6 @@ def display_network(df_filtered, threshold):
         create_using=nx.DiGraph()
     )
 
-    # 2. Initialize PyVis Network
     net = Network(height='600px', width='100%', directed=True, notebook=False, cdn_resources='in_line')
     net.set_options("""
         var options = {
@@ -80,14 +71,13 @@ def display_network(df_filtered, threshold):
         }
     """)
 
-    # 3. Add Nodes and Edges with Styling
     node_scores = {}
     for _, row in df_filtered.iterrows():
         node_scores[row['SENDER_ACCOUNT_ID']] = max(node_scores.get(row['SENDER_ACCOUNT_ID'], 0), row['SUSPICION_SCORE'])
         node_scores[row['RECEIVER_ACCOUNT_ID']] = max(node_scores.get(row['RECEIVER_ACCOUNT_ID'], 0), row['SUSPICION_SCORE'])
 
     fraud_accounts = set(df_filtered[df_filtered['IS_FRAUD'] == 1]['SENDER_ACCOUNT_ID']).union(
-                         set(df_filtered[df_filtered['IS_FRAUD'] == 1]['RECEIVER_ACCOUNT_ID']))
+                     set(df_filtered[df_filtered['IS_FRAUD'] == 1]['RECEIVER_ACCOUNT_ID']))
 
     cmap = mcolors.LinearSegmentedColormap.from_list("suspicion_cmap", ["blue", "red"])
 
@@ -96,9 +86,7 @@ def display_network(df_filtered, threshold):
         color_val = min(score * 1.5, 1.0) 
         hex_color = mcolors.to_hex(cmap(color_val))
         border_width = 3 if node in fraud_accounts else 1
-
         title_html = f"**Account ID:** {node}<br>**Max Edge Score:** {score:.4f}<br>**Known Fraud:** {'Yes' if node in fraud_accounts else 'No'}"
-        
         net.add_node(
             n_id=node, 
             label=str(node), 
@@ -109,43 +97,25 @@ def display_network(df_filtered, threshold):
 
     for source, target, data in G.edges(data=True):
         score = data['SUSPICION_SCORE']
-        
         line_thickness = max(0.5, score * 10) 
         line_color = mcolors.to_hex(cmap(min(score * 1.5, 1.0)))
-
         title_html = (
             f"**Score:** {score:.4f}<br>"
             f"**Amount:** {data['TX_AMOUNT']:,.2f}<br>"
             f"**Type:** {data['TX_TYPE']}<br>"
             f"**Known Fraud:** {'YES' if data['IS_FRAUD'] == 1 else 'No'}"
         )
-        
-        net.add_edge(
-            source=source, 
-            to=target, # <--- CORRECTED 'target' to 'to'
-            title=title_html, 
-            value=line_thickness, 
-            color=line_color
-        )
+        net.add_edge(source=source, to=target, title=title_html, value=line_thickness, color=line_color)
 
-    # 4. Save and Render - CRITICAL ENCODING FIXES BELOW
     html_file_path = 'outputs/network_graph.html'
-    
-    # Save the graph content to a string first (pyvis.network.html property)
-    html_content = net.html
-
-    # FIX 1: Explicitly write the file using UTF-8 encoding (to prevent the write error)
-    with codecs.open(html_file_path, 'w', encoding='utf-8') as out:
-        out.write(html_content)
-
-    # FIX 2: Explicitly read the file using UTF-8 encoding (to prevent the read error)
+    html_str = net.generate_html()
+    with open(html_file_path, "w", encoding="utf-8") as f:
+        f.write(html_str)
     with open(html_file_path, 'r', encoding='utf-8') as f:
-        final_html_content = f.read()
-
-    st.components.v1.html(final_html_content, height=650)
+        html_content = f.read()
+    st.components.v1.html(html_content, height=650)
     st.markdown("---")
-    
-    # 5. Display Table
+
     st.subheader(f"Transaction Table (Filtered: {len(df_filtered):,} edges)")
     st.dataframe(
         df_filtered[['SENDER_ACCOUNT_ID', 'RECEIVER_ACCOUNT_ID', 'TX_AMOUNT', 'TX_TYPE', 'IS_FRAUD', 'SUSPICION_SCORE']]
@@ -153,17 +123,13 @@ def display_network(df_filtered, threshold):
         .head(100)
     )
 
-
-# --- MAIN APP LOGIC EXECUTION ---
-
+# --- MAIN APP LOGIC ---
 st.title("🧠 AML Transaction Graph Analyzer")
 st.markdown("### GraphSAGE Model Results Dashboard")
 
 df_scores = load_scores_data(SCORES_PATH)
 
 if df_scores is not None:
-    
-    # Metrics Panel
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Total Transactions Analyzed", f"{len(df_scores):,}")
     col2.metric("Total Unique Accounts", f"{total_unique_accounts:,}")
@@ -171,12 +137,20 @@ if df_scores is not None:
     col4.metric("Model ROC-AUC (Test)", f"{BEST_MODEL_AUC:.4f}")
     
     st.markdown("---")
+    st.subheader("Transactions by Suspicion Score Range (0.05 steps)")
+
+    # --- 0.05 bins ---
+    bins = [round(x * 0.05, 2) for x in range(21)]  # 0.00 to 1.00
+    labels = [f"{round(bins[i],2)}-{round(bins[i+1],2)}" for i in range(len(bins)-1)]
+    df_scores['SCORE_RANGE'] = pd.cut(df_scores['SUSPICION_SCORE'], bins=bins, labels=labels, include_lowest=True)
+    range_counts = df_scores['SCORE_RANGE'].value_counts().sort_index()
+    st.bar_chart(range_counts)
+
+    st.markdown("---")
     st.subheader("Interactive Suspicious Network Map")
 
-    # Filter/Slider for Threshold
     max_score = df_scores['SUSPICION_SCORE'].max()
-    default_threshold = max(0.501, max_score * 0.99) 
-    
+    default_threshold = max(0.501, max_score * 0.99)
     suspicion_threshold = st.slider(
         "Suspicion Score Threshold (Show Transactions Above This Score)",
         min_value=df_scores['SUSPICION_SCORE'].min(),
@@ -187,5 +161,6 @@ if df_scores is not None:
     )
 
     df_filtered = df_scores[df_scores['SUSPICION_SCORE'] >= suspicion_threshold].copy()
-    
+    st.write(f"Transactions above threshold {suspicion_threshold:.5f}: {len(df_filtered):,}")
+
     display_network(df_filtered, suspicion_threshold)
