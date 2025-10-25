@@ -6,7 +6,7 @@ import os
 import matplotlib.colors as mcolors
 import torch
 from torch_geometric.data import Data 
-import codecs # For UTF-8 fix
+import codecs 
 
 # --- Configuration (Using RELATIVE paths for reliability) ---
 PROCESSED_DATA_PATH = 'data/processed/graph_data.pt'
@@ -19,7 +19,6 @@ FRAUD_RATIO = 0.0013
 def load_graph_data(path):
     """Loads the processed graph data object for dimension extraction."""
     if not os.path.exists(path):
-        # We don't error out, just report 0 for metrics if missing
         return None
     try:
         return torch.load(path, weights_only=False)
@@ -29,9 +28,6 @@ def load_graph_data(path):
 # --- Global Data Loading ---
 data = load_graph_data(PROCESSED_DATA_PATH)
 total_unique_accounts = data.x.size(0) if data is not None else 0
-
-# --- Streamlit Page Setup ---
-st.set_page_config(layout="wide", page_title="AML Transaction Graph Analyzer")
 
 # --- Function to Load Suspicion Scores CSV ---
 @st.cache_data
@@ -167,77 +163,87 @@ def display_network_graph(df_filtered, graph_html_filename):
 
     st.components.v1.html(html_content, height=650, scrolling=True)
 
+# ----------------------------------------------------------------------
+# --- DRAW AMLSIM DASHBOARD (Global View) ---
+# ----------------------------------------------------------------------
 
-# --- PAGE 1: Global Dashboard ---
-def draw_global_dashboard(df_scores):
-    st.title("🌎 Global Dashboard & Risk Leaderboards")
-    st.markdown("Metrics for the entire 1.3M transaction dataset.")
+def draw_amlsim_dashboard():
+    # Load the main data
+    df_scores = load_scores_data(SCORES_PATH)
 
-    # --- Metrics Panel ---
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Total Transactions Analyzed", f"{len(df_scores):,}")
-    col2.metric("Total Unique Accounts", f"{total_unique_accounts:,}")
-    col3.metric("AML Fraud Ratio", f"{FRAUD_RATIO * 100:.2f}%")
-    col4.metric("Model ROC-AUC (Test)", f"{BEST_MODEL_AUC:.4f}")
-    st.markdown("---")
-    
-    # --- Bar Chart ---
-    st.subheader("Transactions by Suspicion Score Range (0.05 steps)")
-    bins = [round(x * 0.05, 2) for x in range(21)]
-    labels = [f"{bins[i]}-{bins[i+1]}" for i in range(len(bins) - 1)]
-    df_scores['SCORE_RANGE'] = pd.cut(df_scores['SUSPICION_SCORE'], bins=bins, labels=labels, include_lowest=True)
-    range_counts = df_scores['SCORE_RANGE'].value_counts().sort_index()
-    st.bar_chart(range_counts)
-    st.markdown("---")
+    st.title("🌎 AMLSim Banking Transaction Analyzer")
+    st.markdown("### GraphSAGE Edge Classification Results")
 
-    # --- Feature 3: Leaderboards ---
-    render_leaderboards(df_scores)
-    st.markdown("---")
+    if df_scores is not None:
+        
+        # --- Metrics Panel ---
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("Total Transactions Analyzed", f"{len(df_scores):,}")
+        col2.metric("Total Unique Accounts", f"{total_unique_accounts:,}")
+        col3.metric("AML Fraud Ratio", f"{FRAUD_RATIO * 100:.2f}%")
+        col4.metric("Model ROC-AUC (Test)", f"{BEST_MODEL_AUC:.4f}")
+        st.markdown("---")
+        
+        # --- Bar Chart ---
+        st.subheader("Transactions by Suspicion Score Range (0.05 steps)")
+        bins = [round(x * 0.05, 2) for x in range(21)]
+        labels = [f"{bins[i]}-{bins[i+1]}" for i in range(len(bins) - 1)]
+        df_scores['SCORE_RANGE'] = pd.cut(df_scores['SUSPICION_SCORE'], bins=bins, labels=labels, include_lowest=True)
+        range_counts = df_scores['SCORE_RANGE'].value_counts().sort_index()
+        st.bar_chart(range_counts)
+        st.markdown("---")
 
-    # --- Main Graph View ---
-    st.subheader("Interactive Suspicious Network Map (Global)")
-    max_score = df_scores['SUSPICION_SCORE'].max()
-    
-    # *** CHANGE HERE: Set the fixed default value ***
-    FIXED_DEFAULT_THRESHOLD = 0.51805 
-    
-    suspicion_threshold = st.slider(
-        "Suspicion Score Threshold (Show Transactions Above This Score)",
-        min_value=float(df_scores['SUSPICION_SCORE'].min()),
-        max_value=float(max_score),
-        # Use the fixed default value
-        value=float(FIXED_DEFAULT_THRESHOLD), 
-        step=0.00001,
-        format="%.5f"
-    )
+        # --- Feature 3: Leaderboards ---
+        render_leaderboards(df_scores)
+        st.markdown("---")
 
-    df_filtered = df_scores[df_scores['SUSPICION_SCORE'] >= suspicion_threshold].copy()
-    st.write(f"Transactions above threshold {suspicion_threshold:.5f}: {len(df_filtered):,}")
+        # --- Main Graph View ---
+        st.subheader("Interactive Suspicious Network Map (Global)")
+        max_score = df_scores['SUSPICION_SCORE'].max()
+        
+        # Set the fixed default value
+        FIXED_DEFAULT_THRESHOLD = 0.51805 
+        
+        suspicion_threshold = st.slider(
+            "Suspicion Score Threshold (Show Transactions Above This Score)",
+            min_value=float(df_scores['SUSPICION_SCORE'].min()),
+            max_value=float(max_score),
+            value=float(FIXED_DEFAULT_THRESHOLD), 
+            step=0.00001,
+            format="%.5f"
+        )
 
-    display_network_graph(df_filtered, "global_network_graph.html")
+        df_filtered = df_scores[df_scores['SUSPICION_SCORE'] >= suspicion_threshold].copy()
+        st.write(f"Transactions above threshold {suspicion_threshold:.5f}: {len(df_filtered):,}")
 
-    st.markdown("---")
-    st.subheader(f"Transaction Table (Filtered: {len(df_filtered):,} edges)")
-    st.dataframe(
-        df_filtered[['SENDER_ACCOUNT_ID', 'RECEIVER_ACCOUNT_ID', 'TX_AMOUNT', 'TX_TYPE', 'IS_FRAUD', 'SUSPICION_SCORE']]
-        .sort_values(by='SUSPICION_SCORE', ascending=False)
-        .head(100)
-    )
+        display_network_graph(df_filtered, "global_network_graph.html")
 
-# --- PAGE 2: Account Deep Dive ---
-def draw_account_deep_dive(df_scores):
+        st.markdown("---")
+        st.subheader(f"Transaction Table (Filtered: {len(df_filtered):,} edges)")
+        st.dataframe(
+            df_filtered[['SENDER_ACCOUNT_ID', 'RECEIVER_ACCOUNT_ID', 'TX_AMOUNT', 'TX_TYPE', 'IS_FRAUD', 'SUSPICION_SCORE']]
+            .sort_values(by='SUSPICION_SCORE', ascending=False)
+            .head(100)
+        )
+
+# ----------------------------------------------------------------------
+# --- DRAW AMLSIM DEEP DIVE VIEW ---
+# ----------------------------------------------------------------------
+def draw_amlsim_deep_dive():
+    df_scores = load_scores_data(SCORES_PATH)
+
     st.title("Investigate a Single Account")
     
-    if 'account_to_search' not in st.session_state:
-        st.session_state.account_to_search = ''
+    if 'amlsim_account_to_search' not in st.session_state:
+        st.session_state.amlsim_account_to_search = ''
 
-    search_id = st.text_input("Enter Account ID to investigate:", value=st.session_state.account_to_search)
+    search_id = st.text_input("Enter Account ID to investigate:", value=st.session_state.amlsim_account_to_search)
     
     if st.button("Analyze Account"):
-        st.session_state.account_to_search = search_id.strip()
+        st.session_state.amlsim_account_to_search = search_id.strip()
 
-    if st.session_state.account_to_search:
-        account_id = st.session_state.account_to_search
+    if st.session_state.amlsim_account_to_search:
+        account_id = st.session_state.amlsim_account_to_search
         st.markdown(f"### Deep Dive Analysis for Account: `{account_id}`")
 
         df_account = df_scores[
@@ -276,20 +282,17 @@ def draw_account_deep_dive(df_scores):
             .sort_values(by='SUSPICION_SCORE', ascending=False)
         )
 
-# --- Main App Logic (Router) ---
-st.sidebar.title("🧠 AML Graph Analyzer")
-app_mode = st.sidebar.radio(
-    "Choose your view:",
-    ["Global Dashboard", "Account Deep Dive"]
-)
+# ----------------------------------------------------------------------
+# --- AMLSIM ROUTER FUNCTION ---
+# ----------------------------------------------------------------------
 
-# Load the main data
-df_scores = load_scores_data(SCORES_PATH)
-
-if df_scores is not None:
-    if app_mode == "Global Dashboard":
-        draw_global_dashboard(df_scores)
-    elif app_mode == "Account Deep Dive":
-        draw_account_deep_dive(df_scores)
-else:
-    st.error("Failed to load suspicion scores. Please run the prediction script.")
+def draw_amlsim_router():
+    st.sidebar.title("🧠 AMLSim Pages")
+    amlsim_mode = st.sidebar.radio(
+        "Choose view:",
+        ["Global Dashboard", "Account Deep Dive"]
+    )
+    if amlsim_mode == "Global Dashboard":
+        draw_amlsim_dashboard()
+    elif amlsim_mode == "Account Deep Dive":
+        draw_amlsim_deep_dive()
