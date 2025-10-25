@@ -1,136 +1,146 @@
+import streamlit as st
 import pandas as pd
-import numpy as np
+import networkx as nx
+from pyvis.network import Network
+import os
+import matplotlib.colors as mcolors
 import torch
 from torch_geometric.data import Data
-from sklearn.preprocessing import LabelEncoder, StandardScaler
-from sklearn.model_selection import train_test_split
-import os
+import codecs  # For UTF-8 fix
+from pathlib import Path
 
-# --- Configuration ---
-RAW_DATA_PATH = 'data/raw/amlsim_transactions.csv'
-PROCESSED_DATA_PATH = 'data/processed/graph_data.pt'
+# =====================================================
+# --- CONFIGURATION (AUTOMATIC REPO-PATH DETECTION) ---
+# =====================================================
+BASE_DIR = Path(__file__).resolve().parent.parent  # Points to AML-Transaction-Graph-Analyser/
+DATA_DIR = BASE_DIR / "data" / "processed"
+OUTPUT_DIR = BASE_DIR / "outputs"
 
-def load_data(path):
-    """Loads the CSV and selects/renames required columns."""
-    print("1. Loading raw data...")
+PROCESSED_DATA_PATH = DATA_DIR / "graph_data.pt"
+SCORES_PATH = OUTPUT_DIR / "suspicion_scores.csv"
+
+# Create missing folders if not present
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+BEST_MODEL_AUC = 0.5649
+FRAUD_RATIO = 0.0013
+
+# =====================================================
+# --- LOAD GRAPH DATA ---
+# =====================================================
+@st.cache_data
+def load_graph_data(path):
+    """Loads the processed graph data object for dimension extraction."""
+    if not path.exists():
+        st.error(f"❌ Processed graph data not found at {path}. Cannot display metrics.")
+        return None
     try:
-        df = pd.read_csv(path)
-        
-        # Standardize the column names
-        df.columns = [col.upper().replace('-', '_') for col in df.columns]
-
-        # Select the columns we need (and ignore TX_ID and ALERT_ID)
-        # Ensure the column names exactly match your CSV
-        df = df[[
-            'SENDER_ACCOUNT_ID', 
-            'RECEIVER_ACCOUNT_ID', 
-            'TX_TYPE', 
-            'TX_AMOUNT', 
-            'IS_FRAUD' 
-        ]].copy()
-        
-        # Ensure the label is binary (1 for fraud, 0 otherwise)
-        df['IS_FRAUD'] = df['IS_FRAUD'].astype(int)
-        
-        print(f"   -> Data loaded with {len(df)} transactions.")
-        return df
-
-    except FileNotFoundError:
-        print(f"Error: File not found at {path}. Please download the CSV.")
-        return None
+        return torch.load(path, weights_only=False)
     except Exception as e:
-        print(f"An error occurred during loading: {e}")
+        st.error(f"Failed to load graph data for metrics. Error: {e}")
         return None
 
-def preprocess_and_build_graph(df):
-    """Converts the DataFrame into a PyG Data object, incorporating TX_TYPE features."""
-    print("2. Preprocessing features and building edge index...")
-    
-    # --- 2.1 Node Encoding (SENDER/RECEIVER IDs) ---
-    all_accounts = pd.concat([df['SENDER_ACCOUNT_ID'], df['RECEIVER_ACCOUNT_ID']]).unique()
-    le = LabelEncoder()
-    le.fit(all_accounts)
-    
-    df['source_id'] = le.transform(df['SENDER_ACCOUNT_ID'])
-    df['target_id'] = le.transform(df['RECEIVER_ACCOUNT_ID'])
-    
-    num_nodes = len(all_accounts)
-    print(f"   -> Total unique accounts (Nodes): {num_nodes}")
-    
-    # --- 2.2 Edge Features (TX_AMOUNT and TX_TYPE) ---
-    
-    # Numeric Feature: TX_AMOUNT (Log-transform and scale)
-    amount_log = np.log1p(df['TX_AMOUNT'].values).reshape(-1, 1)
-    scaler = StandardScaler()
-    amount_scaled = scaler.fit_transform(amount_log)
-    
-    # Categorical Feature: TX_TYPE (One-Hot Encoding)
-    # Ensure TX_TYPE column is treated as strings to avoid issues
-    df['TX_TYPE'] = df['TX_TYPE'].astype(str) 
-    tx_type_onehot = pd.get_dummies(df['TX_TYPE'], prefix='tx_type')
-    
-    # Combine all edge features
-    edge_features_df = pd.DataFrame(amount_scaled, columns=['amount_scaled']).join(tx_type_onehot)
-    
-    # --- FIX: Ensure numpy array is numeric before converting to torch tensor ---
-    edge_features_numpy = edge_features_df.values.astype(np.float32)
-    
-    # Handle NaNs that might arise from converting non-numeric data to float
-    edge_features_numpy = np.nan_to_num(edge_features_numpy, nan=0.0) 
 
-    # Convert to PyTorch Tensor
-    edge_attr = torch.tensor(edge_features_numpy, dtype=torch.float)
-    print(f"   -> Edge features created (Dimension: {edge_attr.size(1)}).")
+data = load_graph_data(PROCESSED_DATA_PATH)
+total_unique_accounts = data.x.size(0) if data is not None else 0
 
-    # --- 2.3 Edge Index and Labels ---
-    source_nodes = torch.tensor(df['source_id'].values, dtype=torch.long)
-    target_nodes = torch.tensor(df['target_id'].values, dtype=torch.long)
-    edge_index = torch.stack([source_nodes, target_nodes], dim=0)
-    
-    edge_labels = torch.tensor(df['IS_FRAUD'].values, dtype=torch.float)
-    
-    # --- 2.4 Dummy Node Features ---
-    x = torch.ones(num_nodes, 1, dtype=torch.float) 
-    
-    # --- 2.5 PyTorch Geometric Data object ---
-    data = Data(
-        x=x,                        
-        edge_index=edge_index,      
-        edge_attr=edge_attr,        
-        y=edge_labels               # Edge labels
+# =====================================================
+# --- STREAMLIT SETUP ---
+# =====================================================
+st.set_page_config(layout="wide", page_title="AML Transaction Graph Analyzer")
+
+# =====================================================
+# --- LOAD SUSPICION SCORES ---
+# =====================================================
+@st.cache_data
+def load_scores_data(path):
+    """Loads the processed suspicion scores."""
+    if not path.exists():
+        st.error(f"❌ Output scores file not found at {path}. Please run 'python src/predict.py' first.")
+        return None
+    df = pd.read_csv(path)
+    df['SENDER_ACCOUNT_ID'] = df['SENDER_ACCOUNT_ID'].astype(str)
+    df['RECEIVER_ACCOUNT_ID'] = df['RECEIVER_ACCOUNT_ID'].astype(str)
+    df['SUSPICION_SCORE'] = df['SUSPICION_SCORE'].clip(0, 1)
+    return df
+
+# =====================================================
+# --- DISPLAY NETWORK GRAPH ---
+# =====================================================
+def display_network_graph(df_filtered, graph_html_filename="network_graph.html"):
+    """Builds, saves, and renders a pyvis graph from a dataframe."""
+    if df_filtered.empty:
+        st.info("No transactions to display for this view.")
+        return
+
+    G = nx.from_pandas_edgelist(
+        df_filtered,
+        source='SENDER_ACCOUNT_ID',
+        target='RECEIVER_ACCOUNT_ID',
+        edge_attr=['TX_AMOUNT', 'SUSPICION_SCORE', 'TX_TYPE', 'IS_FRAUD'],
+        create_using=nx.DiGraph()
     )
 
-    # --- 2.6 Train/Val/Test Split for Edges (Stratified) ---
-    num_edges = data.num_edges
-    indices = np.arange(num_edges)
-    
-    # Stratified split is critical for imbalanced data like fraud
-    train_indices, temp_indices = train_test_split(indices, test_size=0.4, stratify=df['IS_FRAUD'].values, random_state=42)
-    val_indices, test_indices = train_test_split(temp_indices, test_size=0.5, stratify=df.iloc[temp_indices]['IS_FRAUD'].values, random_state=42)
-    
-    data.train_mask = torch.zeros(num_edges, dtype=torch.bool)
-    data.val_mask = torch.zeros(num_edges, dtype=torch.bool)
-    data.test_mask = torch.zeros(num_edges, dtype=torch.bool)
+    net = Network(height='600px', width='100%', directed=True, notebook=False, cdn_resources='remote')
+    net.set_options("""
+        var options = {
+          "physics": {
+            "barnesHH": {
+              "centralGravity": 0.2,
+              "springLength": 100,
+              "springConstant": 0.05,
+              "damping": 0.9
+            },
+            "minVelocity": 0.75
+          }
+        }
+    """)
 
-    data.train_mask[train_indices] = True
-    data.val_mask[val_indices] = True
-    data.test_mask[test_indices] = True
-    
-    print(f"   -> Train/Val/Test Split: {len(train_indices)}/{len(val_indices)}/{len(test_indices)} edges.")
-    print(f"   -> Fraud ratio (Train): {edge_labels[train_indices].sum() / len(train_indices):.4f}")
-    
-    return data
+    node_scores = {}
+    for _, row in df_filtered.iterrows():
+        node_scores[row['SENDER_ACCOUNT_ID']] = max(node_scores.get(row['SENDER_ACCOUNT_ID'], 0), row['SUSPICION_SCORE'])
+        node_scores[row['RECEIVER_ACCOUNT_ID']] = max(node_scores.get(row['RECEIVER_ACCOUNT_ID'], 0), row['SUSPICION_SCORE'])
 
-def save_data(data, path):
-    """Saves the PyTorch Geometric Data object."""
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    torch.save(data, path)
-    print(f"3. ✅ Graph Data saved successfully to: {path}")
+    fraud_accounts = set(df_filtered[df_filtered['IS_FRAUD'] == 1]['SENDER_ACCOUNT_ID']).union(
+        set(df_filtered[df_filtered['IS_FRAUD'] == 1]['RECEIVER_ACCOUNT_ID'])
+    )
 
-if __name__ == "__main__":
-    df_transactions = load_data(RAW_DATA_PATH)
-    
-    if df_transactions is not None and not df_transactions.empty:
-        graph_data = preprocess_and_build_graph(df_transactions)
-        save_data(graph_data, PROCESSED_DATA_PATH)
-        print("\nPipeline stage 1 COMPLETE. Ready for model training!")
+    cmap = mcolors.LinearSegmentedColormap.from_list("suspicion_cmap", ["blue", "red"])
+
+    for node in G.nodes():
+        score = node_scores.get(node, 0)
+        color_val = min(score * 1.5, 1.0)
+        hex_color = mcolors.to_hex(cmap(color_val))
+        border_width = 3 if node in fraud_accounts else 1
+        title_html = f"**Account ID:** {node}<br>**Max Edge Score:** {score:.4f}<br>**Known Fraud:** {'Yes' if node in fraud_accounts else 'No'}"
+        net.add_node(
+            n_id=str(node),
+            label=str(node),
+            title=title_html,
+            color={'border': '#000000' if node not in fraud_accounts else '#FF0000', 'background': hex_color},
+            borderWidth=border_width
+        )
+
+    for source, target, data in G.edges(data=True):
+        score = data['SUSPICION_SCORE']
+        line_thickness = max(0.5, score * 10)
+        line_color = mcolors.to_hex(cmap(min(score * 1.5, 1.0)))
+        title_html = (
+            f"**Score:** {score:.4f}<br>"
+            f"**Amount:** {data['TX_AMOUNT']:,.2f}<br>"
+            f"**Type:** {data['TX_TYPE']}<br>"
+            f"**Known Fraud:** {'YES' if data['IS_FRAUD'] == 1 else 'No'}"
+        )
+        net.add_edge(source=str(source), to=str(target), title=title_html, value=line_thickness, color=line_color)
+
+    html_file_path = OUTPUT_DIR / graph_html_filename
+
+    html_str = net.generate_html()
+    with codecs.open(html_file_path, "w", encoding="utf-8") as f:
+        f.write(html_str)
+
+    with open(html_file_path, 'r', encoding='utf-8') as f:
+        html_content = f.read()
+
+    st.components.v1.html(html_content, height=650, scrolling=True)
