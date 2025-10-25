@@ -49,7 +49,6 @@ def load_scores_data(path):
 
 # --- Function to Render Leaderboards ---
 def render_leaderboards(df_scores):
-    # ... (Code for render_leaderboards remains as previously provided) ...
     st.subheader("📊 Top 10 High-Risk Account Leaderboards")
     
     RISK_THRESHOLD = 0.5075 
@@ -102,10 +101,8 @@ def display_network_graph(df_filtered, graph_html_filename):
         create_using=nx.DiGraph()
     )
 
-    # Use 'remote' cdn_resources to keep file size small and reliable
     net = Network(height='600px', width='100%', directed=True, notebook=False, cdn_resources='remote')
 
-    # ... (Pyvis physics and node/edge styling code remains here) ...
     net.set_options("""
         var options = {
           "physics": {
@@ -184,7 +181,7 @@ def draw_global_dashboard(df_scores):
     col4.metric("Model ROC-AUC (Test)", f"{BEST_MODEL_AUC:.4f}")
     st.markdown("---")
     
-    # --- Bar Chart (RETAINED ONLY IF NEEDED, but often causes conflicts) ---
+    # --- Bar Chart ---
     st.subheader("Transactions by Suspicion Score Range (0.05 steps)")
     bins = [round(x * 0.05, 2) for x in range(21)]
     labels = [f"{bins[i]}-{bins[i+1]}" for i in range(len(bins) - 1)]
@@ -200,13 +197,16 @@ def draw_global_dashboard(df_scores):
     # --- Main Graph View ---
     st.subheader("Interactive Suspicious Network Map (Global)")
     max_score = df_scores['SUSPICION_SCORE'].max()
-    default_threshold = max_score * 0.95
+    
+    # *** CHANGE HERE: Set the fixed default value ***
+    FIXED_DEFAULT_THRESHOLD = 0.51805 
     
     suspicion_threshold = st.slider(
         "Suspicion Score Threshold (Show Transactions Above This Score)",
         min_value=float(df_scores['SUSPICION_SCORE'].min()),
         max_value=float(max_score),
-        value=float(default_threshold),
+        # Use the fixed default value
+        value=float(FIXED_DEFAULT_THRESHOLD), 
         step=0.00001,
         format="%.5f"
     )
