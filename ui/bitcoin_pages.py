@@ -51,13 +51,10 @@ df_edges = load_edge_data(EDGES_PATH)
 # --- Function to Render Leaderboards ---
 def render_leaderboards(df_pred):
     """
-    Renders the analytical leaderboards focusing on high-risk, UNLABELED addresses
-    and the top safest addresses.
+    Renders the analytical leaderboards focusing on high-risk, UNLABELED addresses.
     """
-    st.subheader("📊 High-Risk & Low-Risk Address Leaderboards")
+    st.subheader("🥇 Top Predicted High-Risk Addresses (Unseen)")
 
-    # --- High Risk Section ---
-    st.markdown("#### 🥇 Top Predicted High-Risk Addresses (Unseen)")
     # Filter only UNLABELED addresses with high prediction score
     df_risky = df_pred[
         (df_pred['SUSPICION_SCORE'] >= RISK_THRESHOLD) &
@@ -66,41 +63,21 @@ def render_leaderboards(df_pred):
 
     if df_risky.empty:
         st.info(f"No unlabeled addresses meet the high-risk threshold of {RISK_THRESHOLD:.2f}.")
-    else:
-        # 1. Top 10 Risky Accounts (Highest Suspicion Score)
-        st.markdown("##### Top 10 High-Risk Unlabeled Addresses (by Illicit Score)")
-        score_leaderboard = df_risky[['txId', 'SUSPICION_SCORE']].head(10).reset_index(drop=True)
-        score_leaderboard.index += 1
-        score_leaderboard.columns = ['Address ID', 'Illicit Score']
-        st.dataframe(score_leaderboard.style.format({'Illicit Score': '{:.6f}'}), use_container_width=True)
+        return
 
-        # 2. Top 10 Risky TimeSteps (Highest Count of Illicit Addresses)
-        st.markdown("##### Top 10 Risky TimeSteps (Highest Count of Illicit Predictions)")
-        hub_leaderboard = df_risky.groupby('TimeStep').size().sort_values(ascending=False).head(10).reset_index()
-        hub_leaderboard.columns = ['TimeStep', 'Count of Risky Addresses']
-        st.dataframe(hub_leaderboard, use_container_width=True, hide_index=True)
+    # --- 1. Top 10 Risky Accounts (Highest Suspicion Score) ---
+    st.markdown("#### Top 10 High-Risk Unlabeled Addresses (by Illicit Score)")
+    score_leaderboard = df_risky[['txId', 'SUSPICION_SCORE']].head(10).reset_index(drop=True)
+    score_leaderboard.index += 1
+    score_leaderboard.columns = ['Address ID', 'Illicit Score']
+    st.dataframe(score_leaderboard.style.format({'Illicit Score': '{:.6f}'}), use_container_width=True)
 
-    st.markdown("---") # Separator
 
-    # --- Low Risk Section ---
-    st.markdown("#### ✅ Top 10 Safest Addresses (by Illicit Score)")
-    st.markdown("_These addresses have the lowest predicted probability of being illicit (Score ≈ 0)._")
-
-    # Get the top 10 lowest scores from the entire prediction set
-    safe_leaderboard = df_pred.sort_values(by='SUSPICION_SCORE', ascending=True).head(10).reset_index(drop=True)
-    safe_leaderboard.index += 1
-    # Check if 'class' column exists before renaming, adjust columns list accordingly
-    if 'class' in safe_leaderboard.columns:
-        # Rename columns for clarity, using original names from df_pred
-        safe_leaderboard_display = safe_leaderboard[['txId', 'TimeStep', 'class', 'SUSPICION_SCORE']].copy()
-        safe_leaderboard_display.columns = ['Address ID', 'TimeStep', 'Ground Truth', 'Illicit Score']
-        display_cols = ['Address ID', 'TimeStep', 'Ground Truth', 'Illicit Score']
-    else: # Fallback if 'class' column was somehow dropped earlier
-         safe_leaderboard_display = safe_leaderboard[['txId', 'TimeStep', 'SUSPICION_SCORE']].copy()
-         safe_leaderboard_display.columns = ['Address ID', 'TimeStep', 'Illicit Score']
-         display_cols = ['Address ID', 'TimeStep', 'Illicit Score']
-
-    st.dataframe(safe_leaderboard_display[display_cols].style.format({'Illicit Score': '{:.6f}'}), use_container_width=True)
+    # --- 2. Top 10 Risky TimeSteps (Highest Count of Illicit Addresses) ---
+    st.markdown("#### Top 10 Risky TimeSteps (Highest Count of Illicit Predictions)")
+    hub_leaderboard = df_risky.groupby('TimeStep').size().sort_values(ascending=False).head(10).reset_index()
+    hub_leaderboard.columns = ['TimeStep', 'Count of Risky Addresses']
+    st.dataframe(hub_leaderboard, use_container_width=True, hide_index=True)
 
 
 # --- New Graph Drawing Function for Egonet ---
@@ -345,8 +322,8 @@ def draw_bitcoin_deep_dive(): # Renamed function
         col2.metric("Total Neighbors (Transactions)", f"{len(neighbors) - 1:,}")
         col3.metric("Number of Direct Connections", f"{len(df_account_edges):,}")
 
-        # --- NEW PATTERN ANALYSIS CALL for BITCOIN ---
-        pattern_result = analyze_bitcoin_patterns(account_id, df_edges, score) # Pass the score
+        # --- UPDATE PATTERN ANALYSIS CALL for BITCOIN (Pass the score) ---
+        pattern_result = analyze_bitcoin_patterns(account_id, df_edges, score)
         st.markdown(f"**Predicted Structural Patterns:** :red[{pattern_result}]")
         st.markdown("---")
 

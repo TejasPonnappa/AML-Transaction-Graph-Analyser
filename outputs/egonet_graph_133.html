@@ -227,7 +227,7 @@ function highlightFilter(filter) {
 
              #mynetwork {
                  width: 100%;
-                 height: 500px;
+                 height: 600px;
                  background-color: #ffffff;
                  border: 1px solid lightgray;
                  position: relative;
@@ -282,8 +282,8 @@ function highlightFilter(filter) {
                   
 
                   // parsing and collecting nodes and edges from the python
-                  nodes = new vis.DataSet([{"borderWidth": 1, "color": {"background": "#112a66", "border": "#000000"}, "id": "232344069", "label": "232344069", "shape": "dot", "size": 15.0022033268, "title": "**Address ID:** 232344069\u003cbr\u003e**Score:** 0.000110\u003cbr\u003e**Truth:** Licit"}, {"borderWidth": 1, "color": {"background": "#112a66", "border": "#000000"}, "id": "27553029", "label": "27553029", "shape": "dot", "size": 15.001316621, "title": "**Address ID:** 27553029\u003cbr\u003e**Score:** 0.000066\u003cbr\u003e**Truth:** Licit"}, {"borderWidth": 1, "color": {"background": "#112a66", "border": "#000000"}, "id": "234419685", "label": "234419685", "shape": "dot", "size": 15.0, "title": "**Address ID:** 234419685\u003cbr\u003e**Score:** 0.000000\u003cbr\u003e**Truth:** Licit"}]);
-                  edges = new vis.DataSet([{"arrows": "to", "color": "#999999", "from": "232344069", "to": "27553029", "width": 1.5}, {"arrows": "to", "color": "#999999", "from": "232344069", "to": "234419685", "width": 1.5}]);
+                  nodes = new vis.DataSet([{"borderWidth": 1, "color": {"background": "#c0003f", "border": "#000000"}, "id": "7006", "label": "7006", "shape": "dot", "title": "Account ID: 7006\u003cbr\u003eMax Edge Score: 0.5025\u003cbr\u003eKnown Fraud: No"}, {"borderWidth": 1, "color": {"background": "#c0003f", "border": "#000000"}, "id": "133", "label": "133", "shape": "dot", "title": "Account ID: 133\u003cbr\u003eMax Edge Score: 0.5025\u003cbr\u003eKnown Fraud: No"}, {"borderWidth": 1, "color": {"background": "#c0003f", "border": "#000000"}, "id": "5025", "label": "5025", "shape": "dot", "title": "Account ID: 5025\u003cbr\u003eMax Edge Score: 0.5025\u003cbr\u003eKnown Fraud: No"}, {"borderWidth": 1, "color": {"background": "#c0003f", "border": "#000000"}, "id": "2595", "label": "2595", "shape": "dot", "title": "Account ID: 2595\u003cbr\u003eMax Edge Score: 0.5025\u003cbr\u003eKnown Fraud: No"}, {"borderWidth": 1, "color": {"background": "#c0003f", "border": "#000000"}, "id": "1228", "label": "1228", "shape": "dot", "title": "Account ID: 1228\u003cbr\u003eMax Edge Score: 0.5025\u003cbr\u003eKnown Fraud: No"}, {"borderWidth": 1, "color": {"background": "#c0003f", "border": "#000000"}, "id": "9962", "label": "9962", "shape": "dot", "title": "Account ID: 9962\u003cbr\u003eMax Edge Score: 0.5025\u003cbr\u003eKnown Fraud: No"}, {"borderWidth": 1, "color": {"background": "#c0003f", "border": "#000000"}, "id": "9807", "label": "9807", "shape": "dot", "title": "Account ID: 9807\u003cbr\u003eMax Edge Score: 0.5025\u003cbr\u003eKnown Fraud: No"}]);
+                  edges = new vis.DataSet([{"arrows": "to", "color": "#c0003f", "from": "7006", "title": "Score: 0.5025\u003cbr\u003eAmount: 15.40\u003cbr\u003eType: TRANSFER\u003cbr\u003eKnown Fraud: No", "to": "133", "value": 5.024603}, {"arrows": "to", "color": "#c0003f", "from": "133", "title": "Score: 0.5025\u003cbr\u003eAmount: 47.52\u003cbr\u003eType: TRANSFER\u003cbr\u003eKnown Fraud: No", "to": "9962", "value": 5.024603}, {"arrows": "to", "color": "#c0003f", "from": "133", "title": "Score: 0.5025\u003cbr\u003eAmount: 47.52\u003cbr\u003eType: TRANSFER\u003cbr\u003eKnown Fraud: No", "to": "2595", "value": 5.024603}, {"arrows": "to", "color": "#c0003f", "from": "133", "title": "Score: 0.5025\u003cbr\u003eAmount: 47.52\u003cbr\u003eType: TRANSFER\u003cbr\u003eKnown Fraud: No", "to": "9807", "value": 5.024603}, {"arrows": "to", "color": "#c0003f", "from": "5025", "title": "Score: 0.5025\u003cbr\u003eAmount: 13.71\u003cbr\u003eType: TRANSFER\u003cbr\u003eKnown Fraud: No", "to": "133", "value": 5.024603}, {"arrows": "to", "color": "#c0003f", "from": "2595", "title": "Score: 0.5025\u003cbr\u003eAmount: 540.15\u003cbr\u003eType: TRANSFER\u003cbr\u003eKnown Fraud: No", "to": "133", "value": 5.024603}, {"arrows": "to", "color": "#c0003f", "from": "1228", "title": "Score: 0.5025\u003cbr\u003eAmount: 6,118,204.50\u003cbr\u003eType: TRANSFER\u003cbr\u003eKnown Fraud: No", "to": "133", "value": 5.024603}]);
 
                   nodeColors = {};
                   allNodes = nodes.get({ returnType: "Object" });
@@ -294,35 +294,7 @@ function highlightFilter(filter) {
                   // adding nodes and edges to the graph
                   data = {nodes: nodes, edges: edges};
 
-                  var options = {
-    "configure": {
-        "enabled": false
-    },
-    "edges": {
-        "color": {
-            "inherit": true
-        },
-        "smooth": {
-            "enabled": true,
-            "type": "dynamic"
-        }
-    },
-    "interaction": {
-        "dragNodes": true,
-        "hideEdgesOnDrag": false,
-        "hideNodesOnDrag": false
-    },
-    "physics": {
-        "enabled": true,
-        "stabilization": {
-            "enabled": true,
-            "fit": true,
-            "iterations": 1000,
-            "onlyDynamicEdges": false,
-            "updateInterval": 50
-        }
-    }
-};
+                  var options = {"physics": {"barnesHut": {"centralGravity": 0.3, "springLength": 100, "springConstant": 0.04, "damping": 0.9}, "minVelocity": 0.75}};
 
                   
 
