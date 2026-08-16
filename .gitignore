@@ -1,2 +1,9 @@
-data/raw/elliptic_txs_features.csv
-data/processed/graph_data_bitcoin.pt
+data/raw/
+data/processed/
+outputs/.graph_cache/
+outputs/*.pth
+outputs/*.csv
+outputs/*.json
+outputs/*.png
+__pycache__/
+*.pyc
