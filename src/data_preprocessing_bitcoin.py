@@ -36,7 +36,12 @@ def preprocess_bitcoin_data():
     
     # Create a mapping from node ID (txId) to its integer index (0 to N-1)
     node_ids = df_features['txId'].values
-    node_map = {txId: i for i, txId in enumerate(node_ids)}
+    node_map = {}      # Create an empty dictionary
+    counter = 0        # Start handing out tickets at number 0
+
+    for txId in node_ids:
+        node_map[txId] = counter  # Assign the current ticket number to the transaction
+        counter += 1              # Increase the ticket number for the next person
     
     num_nodes = len(node_ids)
     print(f"   -> Total nodes/transactions: {num_nodes:,}")
@@ -69,26 +74,23 @@ def preprocess_bitcoin_data():
     
     print(f"   -> Illicit/Licit/Unknown Split: {torch.sum(Y==1).item():,}/{torch.sum(Y==0).item():,}/{torch.sum(Y==-1).item():,}")
     
-    # 5. Create Masks for Training (Splitting only on Labeled Nodes)
-    
+    # 5. Create Masks for Training (TEMPORAL split, matching Elliptic paper convention)
+    # time_step ranges 1-49. Train on early steps, test on late steps.
+    time_steps = torch.tensor(df_features['time_step'].values, dtype=torch.long)
+
     labeled_mask = (Y != -1)
-    labeled_indices = torch.where(labeled_mask)[0].numpy()
-    Y_labeled = Y[labeled_mask].numpy()
-    
-    # Stratified split 
-    train_idx, temp_idx = train_test_split(labeled_indices, test_size=0.4, stratify=Y_labeled, random_state=42)
-    val_idx, test_idx = train_test_split(temp_idx, test_size=0.5, stratify=Y[temp_idx].numpy(), random_state=42)
-    
-    # Create PyG Masks (size of all nodes)
-    train_mask = torch.zeros(num_nodes, dtype=torch.bool)
-    val_mask = torch.zeros(num_nodes, dtype=torch.bool)
-    test_mask = torch.zeros(num_nodes, dtype=torch.bool)
-    
-    train_mask[train_idx] = True
-    val_mask[val_idx] = True
-    test_mask[test_idx] = True
-    
-    print(f"   -> Labeled nodes (Train/Val/Test): {len(train_idx):,}/{len(val_idx):,}/{len(test_idx):,}")
+
+    train_time_cutoff = 34   # steps 1-34 -> train
+    val_time_cutoff = 38     # steps 35-38 -> val, 39-49 -> test
+
+    train_mask = labeled_mask & (time_steps <= train_time_cutoff)
+    val_mask   = labeled_mask & (time_steps > train_time_cutoff) & (time_steps <= val_time_cutoff)
+    test_mask  = labeled_mask & (time_steps > val_time_cutoff)
+
+    print(f"   -> Labeled nodes (Train/Val/Test): "
+          f"{train_mask.sum().item():,}/{val_mask.sum().item():,}/{test_mask.sum().item():,}")
+    print(f"   -> Train time steps: 1-{train_time_cutoff} | "
+          f"Val: {train_time_cutoff+1}-{val_time_cutoff} | Test: {val_time_cutoff+1}-49")
     
     # 6. Create PyTorch Geometric Data object
     data = Data(
