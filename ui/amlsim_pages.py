@@ -4,12 +4,12 @@ import os
 import torch
 from torch_geometric.data import Data
 from ui.graph_display_amlsim import display_network_graph  # now defaults to physics_profile="repulsion"
+from ui.metrics_loader import load_metrics, get_threshold
 
 # --- Configuration (Using RELATIVE paths for reliability) ---
 PROCESSED_DATA_PATH = 'data/processed/graph_data.pt'
 SCORES_PATH = 'outputs/suspicion_scores.csv'
-BEST_MODEL_AUC = 0.5649
-FRAUD_RATIO = 0.0013
+METRICS_PATH = 'outputs/metrics.json'
 
 # --- Function to Load Graph Data for Global Metrics ---
 @st.cache_data
@@ -36,14 +36,13 @@ def load_scores_data(path):
     return df
 
 # --- Function to Render Leaderboards ---
-def render_leaderboards(df_scores):
+def render_leaderboards(df_scores, risk_threshold):
     st.subheader("📊 Top 10 High-Risk Account Leaderboards")
 
-    RISK_THRESHOLD = 0.5075
-    df_risky = df_scores[df_scores['SUSPICION_SCORE'] >= RISK_THRESHOLD].copy()
+    df_risky = df_scores[df_scores['SUSPICION_SCORE'] >= risk_threshold].copy()
 
     if df_risky.empty:
-        st.info(f"No transactions meet the high-risk threshold of {RISK_THRESHOLD:.4f} for leaderboard calculation.")
+        st.info(f"No transactions meet the high-risk threshold of {risk_threshold:.4f} for leaderboard calculation.")
         return
 
     st.markdown("#### 🥇 Top 10 Risky Accounts (by Average Suspicion Score)")
@@ -123,6 +122,7 @@ def analyze_aml_patterns(df_account, net_flow, avg_score):
 
 def draw_amlsim_dashboard():
     df_scores = load_scores_data(SCORES_PATH)
+    metrics = load_metrics(METRICS_PATH)
     data = load_graph_data(PROCESSED_DATA_PATH)
     total_unique_accounts = data.x.size(0) if data is not None else 0
 
@@ -134,8 +134,8 @@ def draw_amlsim_dashboard():
         col1, col2, col3, col4 = st.columns(4)
         col1.metric("Total Transactions Analyzed", f"{len(df_scores):,}")
         col2.metric("Total Unique Accounts", f"{total_unique_accounts:,}")
-        col3.metric("AML Fraud Ratio", f"{FRAUD_RATIO * 100:.2f}%")
-        col4.metric("Model ROC-AUC (Test)", f"{BEST_MODEL_AUC:.4f}")
+        col3.metric("AML Fraud Ratio", f"{df_scores['IS_FRAUD'].mean() * 100:.2f}%")
+        col4.metric("Model ROC-AUC (Test)", f"{metrics['test_roc_auc']:.4f}" if 'test_roc_auc' in metrics else "n/a")
         st.markdown("---")
 
         st.subheader("Transactions by Suspicion Score Range (0.05 steps)")
@@ -149,7 +149,7 @@ def draw_amlsim_dashboard():
             st.warning("Suspicion score data not available for histogram.")
         st.markdown("---")
 
-        render_leaderboards(df_scores)
+        render_leaderboards(df_scores, get_threshold(metrics))
         st.markdown("---")
 
         st.subheader("Interactive Suspicious Network Map (Global)")

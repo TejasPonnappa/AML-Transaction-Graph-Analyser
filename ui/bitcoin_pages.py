@@ -4,19 +4,15 @@ import os
 import plotly.express as px
 from ui.dashboard_components import animated_metric_row, score_distribution_chart, top_risk_ticker, risk_gauge
 from ui.graph_display_bitcoin import display_network_graph
+from ui.metrics_loader import load_metrics, get_threshold
 
 # --- Configuration ---
 PREDICTIONS_PATH = 'outputs/bitcoin_predictions.csv'
 EDGES_PATH = 'data/raw/elliptic_txs_edgelist.csv'
-TOTAL_TXS = 203769
-TOTAL_LABELED = 4545 + 42019
-TEST_F1_SCORE = 0.8497
-RISK_THRESHOLD = 0.95
+METRICS_PATH = 'outputs/metrics_bitcoin.json'
 MAX_GRAPH_NODES = 10000  # safety ceiling only — NOT the default cap. The 50% logic below
                           # already produces 3000/6000, 7000/14000, etc. This just stops
                           # things from running away past 10k nodes on extreme inputs.
-
-st.set_page_config(layout="wide", page_title="Elliptic Bitcoin Analyzer")
 
 
 @st.cache_data
@@ -46,16 +42,16 @@ df_pred = load_bitcoin_predictions(PREDICTIONS_PATH)
 df_edges = load_edge_data(EDGES_PATH)
 
 
-def render_leaderboards(df_pred):
+def render_leaderboards(df_pred, risk_threshold):
     st.subheader("🥇 Top Predicted High-Risk Addresses (Unseen)")
 
     df_risky = df_pred[
-        (df_pred['SUSPICION_SCORE'] >= RISK_THRESHOLD) &
+        (df_pred['SUSPICION_SCORE'] >= risk_threshold) &
         (df_pred['class'] == 'Unlabeled')
     ].copy()
 
     if df_risky.empty:
-        st.info(f"No unlabeled addresses meet the high-risk threshold of {RISK_THRESHOLD:.2f}.")
+        st.info(f"No unlabeled addresses meet the high-risk threshold of {risk_threshold:.2f}.")
         return
 
     st.markdown("#### Top 10 High-Risk Unlabeled Addresses (by Illicit Score)")
@@ -104,13 +100,17 @@ def draw_global_dashboard(df_pred):
     st.title("₿ Elliptic Bitcoin Transaction Analyzer")
     st.markdown("### GraphSAGE Node Classification Results")
 
-    PREDICTED_UNLABELED = df_pred[(df_pred['SUSPICION_SCORE'] >= RISK_THRESHOLD) & (df_pred['class'] == 'Unlabeled')].shape[0]
+    metrics = load_metrics(METRICS_PATH)
+    risk_threshold = get_threshold(metrics)
+    total_txs = len(df_pred)
+    total_labeled = int((df_pred['class'] != 'Unlabeled').sum())
+    PREDICTED_UNLABELED = df_pred[(df_pred['SUSPICION_SCORE'] >= risk_threshold) & (df_pred['class'] == 'Unlabeled')].shape[0]
 
     col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Total Addresses Analyzed", f"{TOTAL_TXS:,}")
-    col2.metric("Total Labeled Addresses", f"{TOTAL_LABELED:,}")
-    col3.metric("Model F1 Score (Test)", f"{TEST_F1_SCORE:.4f}")
-    col4.metric(f"New Predictions (Risk ≥ {RISK_THRESHOLD:.2f})", f"{PREDICTED_UNLABELED:,}")
+    col1.metric("Total Addresses Analyzed", f"{total_txs:,}")
+    col2.metric("Total Labeled Addresses", f"{total_labeled:,}")
+    col3.metric("Model F1 Score (Test)", f"{metrics['test_f1']:.4f}" if 'test_f1' in metrics else "n/a")
+    col4.metric(f"New Predictions (Risk ≥ {risk_threshold:.2f})", f"{PREDICTED_UNLABELED:,}")
 
     st.markdown("#### 🔴 Highest Risk Addresses Right Now")
     top_risk_ticker(df_pred, id_col='txId', score_col='SUSPICION_SCORE')
@@ -131,7 +131,7 @@ def draw_global_dashboard(df_pred):
     st.plotly_chart(fig_hist, use_container_width=True)
     st.markdown("---")
 
-    render_leaderboards(df_pred)
+    render_leaderboards(df_pred, risk_threshold)
     st.markdown("---")
 
     st.subheader("Time-Series Risk Analysis (Average Suspicion Score per TimeStep)")

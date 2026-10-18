@@ -10,7 +10,7 @@ import plotly.graph_objects as go
 import pandas as pd
 
 
-def score_distribution_chart(df_scores, score_col='SUSPICION_SCORE', title="Suspicion Score Distribution"):
+def score_distribution_chart(df_scores, score_col='SUSPICION_SCORE', title="Suspicion Score Distribution", threshold=0.5):
     """Replaces st.bar_chart with a styled, interactive Plotly histogram —
     hoverable, zoomable, with a gradient color scale tied to risk level."""
     fig = px.histogram(
@@ -28,7 +28,7 @@ def score_distribution_chart(df_scores, score_col='SUSPICION_SCORE', title="Susp
         font=dict(family="sans serif", size=13),
         showlegend=False
     )
-    fig.add_vline(x=0.5, line_dash="dash", line_color="#f59e0b",
+    fig.add_vline(x=threshold, line_dash="dash", line_color="#f59e0b",
                    annotation_text="Risk threshold", annotation_position="top")
     st.plotly_chart(fig, use_container_width=True)
 

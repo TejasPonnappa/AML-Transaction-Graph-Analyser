@@ -3,6 +3,7 @@ import pandas as pd
 import os
 from ui.dashboard_components import animated_metric_row, score_distribution_chart, top_risk_ticker, risk_gauge
 from ui.graph_display_amlsim import display_network_graph  # reused, same schema now
+from ui.metrics_loader import load_metrics, get_threshold
 
 # --- Configuration ---
 SCORES_PATH = 'outputs/ibm_predictions.csv'
@@ -21,22 +22,12 @@ def load_scores_data(path):
     return df
 
 
-@st.cache_data
-def load_metrics(path):
-    import json
-    if not os.path.exists(path):
-        return {}
-    with open(path, 'r') as f:
-        return json.load(f)
-
-
-def render_leaderboards(df_scores):
+def render_leaderboards(df_scores, risk_threshold):
     st.subheader("📊 Top 10 High-Risk Account Leaderboards")
-    RISK_THRESHOLD = 0.5
-    df_risky = df_scores[df_scores['SUSPICION_SCORE'] >= RISK_THRESHOLD].copy()
+    df_risky = df_scores[df_scores['SUSPICION_SCORE'] >= risk_threshold].copy()
 
     if df_risky.empty:
-        st.info(f"No transactions meet the high-risk threshold of {RISK_THRESHOLD:.4f}.")
+        st.info(f"No transactions meet the high-risk threshold of {risk_threshold:.4f}.")
         return
 
     st.markdown("#### 🥇 Top 10 Risky Accounts (by Average Suspicion Score)")
@@ -69,14 +60,14 @@ def draw_ibm_dashboard():
         st.markdown("---")
 
         st.subheader("Suspicion Score Distribution")
-        score_distribution_chart(df_scores)
+        score_distribution_chart(df_scores, threshold=get_threshold(metrics))
         st.markdown("---")
 
-        render_leaderboards(df_scores)
+        render_leaderboards(df_scores, get_threshold(metrics))
         st.markdown("---")
 
         st.subheader("Interactive Suspicious Network Map")
-        best_thresh = metrics.get('best_threshold', 0.5)
+        best_thresh = get_threshold(metrics)
         suspicion_threshold = st.slider(
             "Suspicion Score Threshold",
             min_value=float(df_scores['SUSPICION_SCORE'].min()),
