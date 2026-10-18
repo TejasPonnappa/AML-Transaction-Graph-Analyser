@@ -53,7 +53,7 @@ def train_edge_model(*, processed_path, checkpoint_path, metrics_path, curves_pa
     result = run_training(
         build_model=lambda: AMLGraphSAGE(in_x, in_edge, HIDDEN_CHANNELS, OUT_CHANNELS_NODE),
         loss_fn=criterion,
-        outputs_fn=lambda model, d: tuple(t.reshape(-1) for t in model(d)),
+        outputs_fn=lambda model, d, idx: tuple(t.reshape(-1) for t in model(d, idx)),
         data=data, y=y,
         masks={'train': data.train_mask, 'val': data.val_mask, 'test': data.test_mask},
         device=device, seeds=seeds, num_epochs=num_epochs, lr=lr, patience=patience, log=log)

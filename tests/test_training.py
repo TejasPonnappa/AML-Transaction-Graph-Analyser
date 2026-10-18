@@ -25,7 +25,7 @@ def _train(data, y, masks, seeds=(0,), epochs=30):
     return run_training(
         build_model=lambda: AMLGraphSAGE(5, 2, 8, 4),
         loss_fn=torch.nn.BCEWithLogitsLoss(),
-        outputs_fn=lambda m, d: tuple(t.reshape(-1) for t in m(d)),
+        outputs_fn=lambda m, d, idx: tuple(t.reshape(-1) for t in m(d, idx)),
         data=data, y=y, masks=masks, device=torch.device('cpu'),
         seeds=list(seeds), num_epochs=epochs, lr=0.01, patience=10, log=lambda *_: None)
 
