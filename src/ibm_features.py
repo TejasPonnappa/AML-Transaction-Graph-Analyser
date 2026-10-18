@@ -109,3 +109,95 @@ def build_past_only_features(df, src, dst):
     X = np.column_stack(cols).astype(np.float32)
     assert X.shape[1] == len(FEATURE_NAMES), (X.shape, len(FEATURE_NAMES))
     return X, FEATURE_NAMES
+
+
+# --------------------------------------------------------------------------- graph-structure features
+GRAPH_FEATURE_NAMES = [
+    'sender_out_distinct_receivers', 'sender_out_new_receivers_1h', 'sender_out_new_receivers_1d',
+    'receiver_in_distinct_senders', 'receiver_in_new_senders_1h', 'receiver_in_new_senders_1d',
+    'sender_in_distinct_senders', 'receiver_out_distinct_receivers',
+    'two_hop_chains_into_sender', 'two_hop_chains_into_receiver',
+    'reverse_pair_prior_count', 'reverse_pair_secs_since_last', 'three_cycle_witnesses',
+]
+
+
+def three_cycle_witnesses(src, dst, t):
+    """
+    For every transaction s -> r at time t: the number of accounts a with an EARLIER r -> a and an EARLIER a -> s,
+    i.e. how many 3-cycles this transaction would close. Transactions in the same minute never see each other:
+    each timestamp is scored against the state before that minute and only then added.
+    """
+    src, dst, t = np.asarray(src), np.asarray(dst), np.asarray(t)
+    n = len(src)
+    order = np.argsort(t, kind='stable')
+    out_nb, in_nb = {}, {}
+    result = np.zeros(n, dtype=np.float32)
+    i = 0
+    while i < n:
+        j, ti = i, t[order[i]]
+        while j < n and t[order[j]] == ti:
+            j += 1
+        batch = order[i:j]
+        for e in batch:
+            s, r = int(src[e]), int(dst[e])
+            if s == r:
+                continue
+            a, b = out_nb.get(r), in_nb.get(s)
+            if a and b:
+                common = a.intersection(b)
+                common.discard(s)
+                common.discard(r)
+                result[e] = len(common)
+        for e in batch:
+            s, r = int(src[e]), int(dst[e])
+            out_nb.setdefault(s, set()).add(r)
+            in_nb.setdefault(r, set()).add(s)
+        i = j
+    return result
+
+
+def build_past_only_graph_features(df, src, dst):
+    """
+    Structure features from strictly earlier transactions only: distinct counterparties (all-time and newly seen in
+    the last hour / day), 2-hop chain counts into the sender and receiver, reverse-pair history and 3-cycles closed.
+    Returns (float32 matrix in df order, GRAPH_FEATURE_NAMES).
+    """
+    ts = pd.to_datetime(df['Timestamp'], format='%Y/%m/%d %H:%M')
+    t = ((ts - ts.min()).dt.total_seconds()).to_numpy(dtype=np.int64)
+    paid = df['Amount Paid'].to_numpy(dtype=float)
+    n = len(df)
+    src, dst = np.asarray(src, dtype=np.int64), np.asarray(dst, dtype=np.int64)
+    base = int(max(src.max(), dst.max())) + 1
+
+    # a pair counts as a distinct counterparty from the moment of its first transaction
+    pair_key = src * base + dst
+    pair, _ = pd.factorize(pair_key)
+    first = pd.DataFrame({'pair': pair, 't': t}).groupby('pair')['t'].idxmin().to_numpy()
+    ev_src, ev_dst, ev_t, ones = src[first], dst[first], t[first], np.ones(len(first))
+
+    cols = []
+    c, _, _, (w1h, w1d) = past_stats(ev_src, ev_t, ones, src, t)
+    cols += [c, w1h, w1d]                                           # sender: receivers it has used
+    c, _, _, (w1h, w1d) = past_stats(ev_dst, ev_t, ones, dst, t)
+    cols += [c, w1h, w1d]                                           # receiver: senders that have used it
+    c, _, _, _ = past_stats(ev_dst, ev_t, ones, src, t, windows=())
+    cols.append(c)                                                  # sender as a receiver: distinct senders to it
+    c, _, _, _ = past_stats(ev_src, ev_t, ones, dst, t, windows=())
+    cols.append(c)                                                  # receiver as a sender: distinct receivers
+
+    # 2-hop chains: x -> y -> s, weighting each earlier y -> s transaction by how many earlier transactions entered y
+    entered_sender, _, _, _ = past_stats(dst, t, np.ones(n), src, t, windows=())
+    _, chains_s, _, _ = past_stats(dst, t, entered_sender.astype(float), src, t, windows=())
+    _, chains_r, _, _ = past_stats(dst, t, entered_sender.astype(float), dst, t, windows=())
+    cols += [chains_s, chains_r]
+
+    # reverse pair (r -> s earlier) and 3-cycles closed
+    codes, _ = pd.factorize(np.concatenate([pair_key, dst * base + src]))
+    fwd, rev = codes[:n], codes[n:]
+    c, _, since, _ = past_stats(fwd, t, paid, rev, t, windows=())
+    cols += [c, since]
+    cols.append(three_cycle_witnesses(src, dst, t))
+
+    X = np.column_stack([np.log1p(np.asarray(col, dtype=float)) for col in cols]).astype(np.float32)
+    assert X.shape[1] == len(GRAPH_FEATURE_NAMES), (X.shape, len(GRAPH_FEATURE_NAMES))
+    return X, GRAPH_FEATURE_NAMES
