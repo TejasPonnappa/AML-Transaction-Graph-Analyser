@@ -160,15 +160,30 @@ def build_ibm(feature_set='past'):
     base = np.column_stack(base).astype(np.float32)
     splits = {'chronological (as GNN)': load_masks(IBM['graph'], len(df))[0]}
 
-    if feature_set == 'past':
+    # Days on which volume collapses (under 1% of the median day) are reported separately: there the laundering rate is
+    # orders of magnitude higher, which lifts pooled PR-AUC without saying anything about the normal regime.
+    day = ts.dt.floor('D')
+    daily = day.value_counts()
+    tail = day.isin(daily.index[daily < 0.01 * daily.median()]).to_numpy()
+    regimes = {'normal-volume days': ~tail, 'low-volume tail days': tail}
+
+    if feature_set in ('past', 'past_graph'):
         # exactly the inputs the GNN gets (ibm_features.py): history from strictly earlier transactions only
-        from ibm_features import build_past_only_features
+        from ibm_features import build_past_only_features, build_past_only_graph_features
         past, _ = build_past_only_features(df, src, dst)
-        return y, splits, (lambda masks: past)
+        if feature_set == 'past_graph':
+            graph, _ = build_past_only_graph_features(df, src, dst)
+            past = np.hstack([past, graph])
+
+        def features(masks):
+            return past
+        features.regimes = regimes
+        return y, splits, features
 
     def features(masks):
         return np.hstack([base, account_aggregate_features(src, dst, paid, masks['train'], n_acc),
                           pair_count_feature(src, dst, masks['train'], n_acc)])
+    features.regimes = regimes
     return y, splits, features
 
 
@@ -228,15 +243,21 @@ def run_edge_dataset(name, y, splits, features, seeds, models, neg_frac):
         print(f"\n[{name}] split: {split_name}  rows: train {masks['train'].sum():,} / val "
               f"{masks['val'].sum():,} / test {masks['test'].sum():,}  features: {X.shape[1]}", flush=True)
         for model_name in models:
-            runs, times = [], []
+            runs, times, regime_runs = [], [], {}
             for seed in range(seeds):
                 p_val, p_test, val, test, fit_s = fit_predict(model_name, seed, X, y, masks, neg_frac)
                 thr = tune_threshold(y[val], p_val)
                 runs.append(evaluate(y[test], p_test, thr))
+                for regime, rmask in getattr(features, 'regimes', {}).items():
+                    m = rmask[test]
+                    if m.any():
+                        regime_runs.setdefault(regime, []).append(evaluate(y[test][m], p_test[m], thr))
                 times.append(fit_s)
                 print(f"   {model_name} seed {seed}: fit {fit_s:.1f}s  PR-AUC {runs[-1]['pr_auc']:.3f}  "
                       f"F1 {runs[-1]['f1']:.3f}", flush=True)
             results[f"{model_name} | {split_name}"] = dict(summary=summarise(runs), fit_seconds=times, seeds=seeds)
+            for regime, rr in regime_runs.items():
+                results[f"{model_name} | {split_name} | {regime}"] = dict(summary=summarise(rr), seeds=seeds)
     return results
 
 
@@ -323,8 +344,8 @@ def main():
     parser.add_argument('dataset', choices=['amlsim', 'ibm', 'elliptic'])
     parser.add_argument('--seeds', type=int, default=3)
     parser.add_argument('--models', default='hgb,rf', help='comma list from: hgb, rf')
-    parser.add_argument('--ibm-features', choices=['past', 'train_agg'], default='past',
-                        help="IBM inputs: 'past' = past-only history shared with the GNN; "
+    parser.add_argument('--ibm-features', choices=['past', 'past_graph', 'train_agg'], default='past',
+                        help="IBM inputs: 'past' = past-only history shared with the GNN; 'past_graph' = past plus graph-structure features; "
                              "'train_agg' = frozen training-period aggregates (the earlier baseline)")
     parser.add_argument('--neg-frac', type=float, default=1.0,
                         help='fraction of negative TRAIN rows used for fitting (weighted back); use <1 for IBM')
