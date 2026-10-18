@@ -3,8 +3,8 @@ pandas
 matplotlib
 networkx>=3.0
 pyvis
-powerlaw
-faker
+plotly
+streamlit
 torch
 torch_geometric
 scikit-learn
