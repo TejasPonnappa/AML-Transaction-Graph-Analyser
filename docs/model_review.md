@@ -1,6 +1,6 @@
 # Model review and Phase 3 plan
 
-Three read-only reviews (AMLSim, IBM AML, Elliptic) of `src/`, `outputs/metrics*.json` and `tests/`, combined into one prioritised plan. Nothing was trained or changed. "Verified" means read in the code (or, for AMLSim data facts, checked on the raw CSV); "estimate" means reasoning or recalled literature, not a measurement in this repo.
+Three read-only reviews (AMLSim, IBM AML, Elliptic) of `src/`, `outputs/metrics*.json` and `tests/`, combined into one prioritised plan. Nothing was trained or changed. "Verified" means read in the code (or, for AMLSim data facts, checked on the raw CSV); "estimate" means reasoning, not a measurement in this repo. **Any number attributed to the literature is marked "(unverified)": it was recalled from memory and has not been checked against the papers.**
 
 ## 1. Can the reported metrics be trusted?
 
@@ -31,7 +31,7 @@ Three read-only reviews (AMLSim, IBM AML, Elliptic) of `src/`, `outputs/metrics*
 - Temporal split is correct (`data_preprocessing_bitcoin.py:83-88`), unlabeled nodes are excluded from loss and evaluation, and BatchNorm statistics include test-period features (unsupervised, mild).
 - `time_step` is included as an unscaled feature (`:27`, `:34`): train sees 1-34, test sees 39-49, so the model extrapolates on a raw integer.
 - Checkpoints chosen by validation F1 at a hardcoded 0.5 (`train_bitcoin.py:175`, `:79`), while the loss is class-weighted and the deployed threshold is 0.85. The scheduler steps on the same noisy F1. Validation is only 4 time steps.
-- Precision 0.73 vs recall 0.40 is consistent with a threshold too high for shifted test data. Test pools steps 39-49, so the post-step-43 collapse (dark-market shutdown) is averaged in. No per-step metrics exist, so how much of the loss comes from it is unconfirmed.
+- Precision 0.73 vs recall 0.40 is consistent with a threshold too high for shifted test data. Test pools steps 39-49, so a post-step-43 collapse (attributed to a dark-market shutdown; the cause is unverified, the per-step results are measured, see `docs/baseline_results.md`) is averaged in. No per-step metrics exist, so how much of the loss comes from it is unconfirmed.
 - No seeds set anywhere; one run reported. Tests don't cover Elliptic preprocessing or any leakage property.
 
 ## 2. Why the models underperform, by expected impact
@@ -40,13 +40,13 @@ Three read-only reviews (AMLSim, IBM AML, Elliptic) of `src/`, `outputs/metrics*
 
 **IBM**: (1) no temporal or structural features (velocity, fan-in/out, cycles, scatter-gather), and mean-aggregating SAGEConv cannot count them; (2) 5-feature node input squeezed to 4 dims; (3) `edge_attr` not used in message passing; (4) selection on ROC-AUC, single seed, test-tuned weight, censored threshold; (5) mixed-currency amounts with no conversion and `Amount Received` unused; (6) ordinal payment-format encoding. These rankings are estimates.
 
-**Elliptic**: (1) distribution shift after step 43 plus a threshold tuned on pre-shutdown validation; (2) raw `time_step` feature; (3) graph smoothing over features that already contain aggregated neighbours (published GCNs lose to Random Forest here); (4) selection/threshold mismatch; (5) BatchNorm/dropout instability, no seed.
+**Elliptic**: (1) distribution shift after step 43 plus a threshold tuned on pre-shutdown validation; (2) raw `time_step` feature; (3) graph smoothing over features that already contain aggregated neighbours (published GCNs reportedly lose to Random Forest here; unverified); (4) selection/threshold mismatch; (5) BatchNorm/dropout instability, no seed.
 
 ## 3. Honest baselines (estimates, not measured here)
 
 - **AMLSim:** with a temporal split and training-only aggregates, PR-AUC roughly 0.3-0.7 (down from 0.85), ROC-AUC 0.95-0.99, tuned F1 roughly 0.4-0.75. A simple `amount < 20` rule already gets 100% recall at about 0.6% precision, so tree models will likely match the GNN.
-- **IBM:** gradient boosting on edge features only, no leakage: PR-AUC about 0.05-0.15; with past-only sender/receiver aggregates and time features about 0.2-0.4. The current 0.26 contains leaked features, so the leak-free value is likely lower. Reported edge-aware GNN results on HI-Small are higher (F1 around 0.5-0.6, recalled from the literature, treat as a ceiling reference).
-- **Elliptic:** from the original paper (train steps 1-34, test 35-49), Random Forest scores about 0.78-0.80 illicit F1, a GCN about 0.63. Here, a Random Forest would be about 0.75-0.80 on steps 39-49 (+/-0.05, estimate). The GNN's 0.52 is likely below a trivial baseline; fixing `time_step` and the selection criterion might reach 0.60-0.70.
+- **IBM:** gradient boosting on edge features only, no leakage: PR-AUC about 0.05-0.15; with past-only sender/receiver aggregates and time features about 0.2-0.4. The current 0.26 contains leaked features, so the leak-free value is likely lower. Reported edge-aware GNN results on HI-Small are said to be higher (F1 around 0.5-0.6; **unverified**, recalled from the literature, not checked).
+- **Elliptic:** the original paper (train steps 1-34, test 35-49) is recalled as reporting about 0.78-0.80 illicit F1 for Random Forest and about 0.63 for a GCN (**both unverified**). Measured here (see `docs/baseline_results.md`), Random Forest and gradient boosting reach about 0.70-0.75 on steps 39-49. The GNN's 0.52 is likely below a trivial baseline; fixing `time_step` and the selection criterion might reach 0.60-0.70.
 
 ## 4. Cheap comparison experiments (to run in Phase 3, none run yet)
 
@@ -84,6 +84,6 @@ Each step is a separate commit, and metrics will drop after the leakage fixes; t
 
 ## 7. Caveats on this review
 
-- The Elliptic claim that edges never cross time steps and the published baseline numbers come from knowledge of the dataset and paper, not from this repo; the IBM literature figures are recalled, not checked.
+- The Elliptic claim that edges never cross time steps, the attribution of the step-43 drop to a dark-market shutdown, and every published baseline number (Elliptic RF/GCN, IBM edge-aware GNNs) come from recalled knowledge of the datasets and papers, not from this repo, and are **unverified**.
 - The AMLSim and IBM reviewers read the other pipelines only partly; cross-model findings marked "confirmed" were checked in the code, the rest are inferred.
 - No experiment in this document has been run.
