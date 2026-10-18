@@ -1,5 +1,8 @@
 import streamlit as st
 import os
+
+st.set_page_config(layout="wide", page_title="Inferno GNN Analyzer")
+
 from ui.styling import apply_custom_style
 from ui.dashboard_components import inject_component_css
 
@@ -14,8 +17,6 @@ except ImportError as e:
     st.error(f"FATAL ERROR: Could not find project modules. Ensure you have run file renaming commands.")
     st.error(f"Error details: {e}")
     st.stop()
-
-st.set_page_config(layout="wide", page_title="Inferno GNN Analyzer")
 
 st.sidebar.title("🔥 Inferno Project Selection")
 st.sidebar.markdown("### GNN Financial Crime Analyzer")
