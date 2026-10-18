@@ -63,7 +63,7 @@ def run_training(*, build_model, loss_fn, outputs_fn, data, y, masks, device, se
     """
     build_model()            -> fresh nn.Module
     loss_fn(raw, target)     -> scalar loss on the selected rows
-    outputs_fn(model, data)  -> (raw outputs over all rows, probability of the positive class over all rows)
+    outputs_fn(model, data, idx) -> (raw outputs, positive-class probability) for the rows in idx only
     y                        -> targets over all rows (tensor on `device`)
     masks                    -> dict of boolean tensors: 'train', 'val', 'test'
 
@@ -83,16 +83,16 @@ def run_training(*, build_model, loss_fn, outputs_fn, data, y, masks, device, se
         for epoch in range(1, num_epochs + 1):
             model.train()
             optimizer.zero_grad()
-            raw, _ = outputs_fn(model, data)
-            loss = loss_fn(raw[train_idx], y[train_idx])
+            raw, _ = outputs_fn(model, data, train_idx)
+            loss = loss_fn(raw, y[train_idx])
             loss.backward()
             optimizer.step()
 
             model.eval()
             with torch.no_grad():
-                raw_e, prob = outputs_fn(model, data)
-                val_loss = loss_fn(raw_e[val_idx], y[val_idx]).item()
-                val_ap = safe_average_precision(y_np[val_idx.cpu().numpy()], prob[val_idx].cpu().numpy())
+                raw_v, prob_v = outputs_fn(model, data, val_idx)
+                val_loss = loss_fn(raw_v, y[val_idx]).item()
+                val_ap = safe_average_precision(y_np[val_idx.cpu().numpy()], prob_v.cpu().numpy())
             scheduler.step(val_ap)
             for k, v in zip(history, (epoch, loss.item(), val_loss, val_ap)):
                 history[k].append(v)
@@ -112,10 +112,9 @@ def run_training(*, build_model, loss_fn, outputs_fn, data, y, masks, device, se
         model.load_state_dict(best_state)
         model.eval()
         with torch.no_grad():
-            _, prob = outputs_fn(model, data)
-        prob = prob.cpu().numpy()
-        yv, pv = y_np[val_idx.cpu().numpy()], prob[val_idx.cpu().numpy()]
-        yt, pt = y_np[test_idx.cpu().numpy()], prob[test_idx.cpu().numpy()]
+            pv = outputs_fn(model, data, val_idx)[1].cpu().numpy()
+            pt = outputs_fn(model, data, test_idx)[1].cpu().numpy()
+        yv, yt = y_np[val_idx.cpu().numpy()], y_np[test_idx.cpu().numpy()]
         threshold = tune_threshold(yv, pv)
         test = binary_report(yt, pt, threshold)
         test.update(pr_auc=safe_average_precision(yt, pt), roc_auc=safe_roc_auc(yt, pt),

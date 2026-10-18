@@ -52,8 +52,9 @@ def train(seeds, log=print):
     log(f"device {device} | train nodes {int(masks['train'].sum())} | illicit weight {class_weights[1].item():.2f} "
         f"| {len(seeds)} seed(s); checkpoints chosen on validation PR-AUC")
 
-    def outputs(model, d):
+    def outputs(model, d, idx):
         raw, _ = model(d)
+        raw = raw[idx]
         return raw, F.softmax(raw, dim=1)[:, 1]
 
     result = run_training(
