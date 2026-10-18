@@ -2,6 +2,8 @@
 
 All numbers are measured in this repo. Nothing here comes from the literature. Test set: 761,752 transactions, 1,561 laundering, evaluated on every row (no negative sampling) at a threshold tuned on the full validation set.
 
+> **Update:** the pooled test numbers below include a low-volume tail (2022-09-11 onward, 59% laundering) that lifts every PR-AUC. See `docs/ibm_step1_2_results.md` for results split by regime.
+
 ## What changed
 
 - **Features:** one past-only feature set (30 columns, `src/ibm_features.py`) used by BOTH the GNN (as `edge_attr`) and the tree baselines. Every history feature uses transactions with a strictly earlier timestamp and never labels: prior counts and sums per role, seconds since last transaction, 1-hour and 1-day counts, and pair history. Static columns: log paid and received amount, currency mismatch, self-loop, bank mismatch, hour, day of week, payment format one-hot.
