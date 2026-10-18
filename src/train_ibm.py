@@ -7,7 +7,7 @@ import os
 import json
 import matplotlib.pyplot as plt
 
-from model import AMLGraphSAGE  # Import the model you defined
+from model import AMLGraphSAGE
 
 import torch_geometric.data.data
 torch.serialization.add_safe_globals([torch_geometric.data.data.Data])
@@ -16,21 +16,28 @@ torch.serialization.add_safe_globals([torch_geometric.data.data.Data])
 PROCESSED_DATA_PATH = 'data/processed/graph_data_ibm.pt'
 MODEL_CHECKPOINT_PATH = 'outputs/model_checkpoint_ibm.pth'
 METRICS_PATH = 'outputs/metrics_ibm.json'
-NUM_EPOCHS = 100
+NUM_EPOCHS = 200
 LEARNING_RATE = 0.01
 EARLY_STOP_PATIENCE = 25
 
-# --- Hyperparameters for the Model ---
-data = torch.load(PROCESSED_DATA_PATH, weights_only=False)
-IN_CHANNELS_X = data.x.size(1)
-IN_CHANNELS_EDGE = data.edge_attr.size(1)
-HIDDEN_CHANNELS = 64
-OUT_CHANNELS_NODE = 32
+# --- NEW: rebalancing knob ---
+# The raw pos_weight (num_neg/num_pos) was likely pushing the model to
+# over-flag positives (precision 0.123, 4337 FP vs 608 TP). Try values below
+# 1.0 first to pull precision up (fewer false positives, may cost some recall).
+# Try values above 1.0 if you want to push recall up instead.
+# Suggested experiments: 0.5, 0.75, 1.0 (original), 1.5
+POS_WEIGHT_MULTIPLIER = 0.5
 
 
 def train():
     """Implements the training and validation loop."""
     print("1. Initializing Model and Data...")
+
+    data = torch.load(PROCESSED_DATA_PATH, weights_only=False)
+    IN_CHANNELS_X = data.x.size(1)
+    IN_CHANNELS_EDGE = data.edge_attr.size(1)
+    HIDDEN_CHANNELS = 64
+    OUT_CHANNELS_NODE = 32
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model = AMLGraphSAGE(IN_CHANNELS_X, IN_CHANNELS_EDGE, HIDDEN_CHANNELS, OUT_CHANNELS_NODE).to(device)
@@ -40,17 +47,19 @@ def train():
 
     num_pos = data.y[data.train_mask].sum().item()
     num_neg = data.train_mask.sum().item() - num_pos
-    pos_weight = torch.tensor([num_neg / num_pos], device=device)
+    base_pos_weight = num_neg / num_pos
+    pos_weight = torch.tensor([base_pos_weight * POS_WEIGHT_MULTIPLIER], device=device)
     criterion = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight)
 
     print(f"   -> Device: {device}")
+    print(f"   -> edge_attr dimension: {IN_CHANNELS_EDGE}")
     print(f"   -> Training edges (Fraud/Total): {num_pos}/{data.train_mask.sum().item()}")
-    print(f"   -> Positive Weight for BCE Loss: {pos_weight.item():.2f}")
+    print(f"   -> Base pos_weight: {base_pos_weight:.2f} | Multiplier: {POS_WEIGHT_MULTIPLIER} | "
+          f"Effective pos_weight: {pos_weight.item():.2f}")
 
     best_val_auc = 0.0
     patience_counter = 0
 
-    # UPDATED: track per-epoch history for the loss/metric curve plot
     history = {'epoch': [], 'train_loss': [], 'val_loss': [], 'val_auc': [], 'val_f1': []}
 
     print("\n2. Starting Training Loop...")
@@ -121,7 +130,7 @@ def train():
     print(f"   -> Precision: {test_precision:.4f} | Recall: {test_recall:.4f}")
     print(f"   -> Confusion Matrix -> TP: {tp} FP: {fp} FN: {fn} TN: {tn}")
 
-    # --- 5. Save metrics for predict.py / dashboard to consume ---
+    # --- 5. Save metrics ---
     os.makedirs('outputs', exist_ok=True)
     metrics_out = {
         'test_roc_auc': test_metrics['roc_auc'],
@@ -131,20 +140,19 @@ def train():
         'test_precision': test_precision,
         'test_recall': test_recall,
         'confusion_matrix': {'tp': int(tp), 'fp': int(fp), 'fn': int(fn), 'tn': int(tn)},
-        'best_threshold': best_thresh
+        'best_threshold': best_thresh,
+        'pos_weight_multiplier': POS_WEIGHT_MULTIPLIER,
+        'edge_attr_dim': IN_CHANNELS_EDGE,
     }
     with open(METRICS_PATH, 'w') as f:
         json.dump(metrics_out, f, indent=2)
     print(f"\n   -> Metrics saved to {METRICS_PATH}")
 
-    # --- 6. Plot and save training curves ---
     plot_training_curves(history)
-
     print("\nPipeline stage 2 COMPLETE. Trained model checkpoint saved.")
 
 
 def plot_training_curves(history):
-    """UPDATED: Saves a loss-vs-epoch and metric-vs-epoch plot to outputs/."""
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
 
     axes[0].plot(history['epoch'], history['train_loss'], label='Train Loss')
@@ -171,11 +179,9 @@ def plot_training_curves(history):
 
 
 def evaluate(model, data, mask, criterion, return_probs=False):
-    """Evaluates the model on a given mask (val or test)."""
     model.eval()
     with torch.no_grad():
         raw_scores, suspicion_scores = model(data)
-
         loss = criterion(raw_scores[mask], data.y[mask])
 
         preds = suspicion_scores[mask].cpu().numpy()
@@ -199,6 +205,6 @@ def evaluate(model, data, mask, criterion, return_probs=False):
 if __name__ == "__main__":
     if not os.path.exists(PROCESSED_DATA_PATH):
         print(f"Error: Processed data not found at {PROCESSED_DATA_PATH}.")
-        print("Please run 'python src/data_preprocessing.py' first.")
+        print("Please run 'python src/data_preprocessing_ibm.py' first.")
     else:
         train()
