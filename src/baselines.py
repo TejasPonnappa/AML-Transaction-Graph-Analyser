@@ -144,7 +144,7 @@ def build_amlsim():
     return y, splits, features
 
 
-def build_ibm():
+def build_ibm(feature_set='past'):
     df = pd.read_csv(IBM['raw'])
     df.columns = ['Timestamp', 'From Bank', 'Account', 'To Bank', 'Account.1', 'Amount Received',
                   'Receiving Currency', 'Amount Paid', 'Payment Currency', 'Payment Format', 'Is Laundering']
@@ -159,6 +159,12 @@ def build_ibm():
     base += [(df['Payment Format'] == f).to_numpy(float) for f in PAYMENT_FORMATS]
     base = np.column_stack(base).astype(np.float32)
     splits = {'chronological (as GNN)': load_masks(IBM['graph'], len(df))[0]}
+
+    if feature_set == 'past':
+        # exactly the inputs the GNN gets (ibm_features.py): history from strictly earlier transactions only
+        from ibm_features import build_past_only_features
+        past, _ = build_past_only_features(df, src, dst)
+        return y, splits, (lambda masks: past)
 
     def features(masks):
         return np.hstack([base, account_aggregate_features(src, dst, paid, masks['train'], n_acc),
@@ -317,6 +323,9 @@ def main():
     parser.add_argument('dataset', choices=['amlsim', 'ibm', 'elliptic'])
     parser.add_argument('--seeds', type=int, default=3)
     parser.add_argument('--models', default='hgb,rf', help='comma list from: hgb, rf')
+    parser.add_argument('--ibm-features', choices=['past', 'train_agg'], default='past',
+                        help="IBM inputs: 'past' = past-only history shared with the GNN; "
+                             "'train_agg' = frozen training-period aggregates (the earlier baseline)")
     parser.add_argument('--neg-frac', type=float, default=1.0,
                         help='fraction of negative TRAIN rows used for fitting (weighted back); use <1 for IBM')
     args = parser.parse_args()
@@ -330,7 +339,10 @@ def main():
         print_per_step(per_step)
         payload = dict(results=results, per_step=per_step)
     else:
-        builder, cfg = (build_amlsim, AMLSIM) if args.dataset == 'amlsim' else (build_ibm, IBM)
+        if args.dataset == 'amlsim':
+            builder, cfg = build_amlsim, AMLSIM
+        else:
+            builder, cfg = (lambda: build_ibm(args.ibm_features)), IBM
         y, splits, features = builder()
         results = run_edge_dataset(args.dataset, y, splits, features, args.seeds, models, args.neg_frac)
         print_table(results, reported_gnn(cfg['metrics']))
@@ -339,7 +351,8 @@ def main():
     payload.update(dataset=args.dataset, seeds=args.seeds, neg_frac=args.neg_frac,
                    runtime_seconds=time.time() - t0, gnn_reported=reported_gnn(
                        {'amlsim': AMLSIM, 'ibm': IBM, 'elliptic': ELLIPTIC}[args.dataset]['metrics']))
-    out = f'outputs/baselines_{args.dataset}.json'
+    tag = f'_{args.ibm_features}' if args.dataset == 'ibm' and args.ibm_features != 'train_agg' else ''
+    out = f'outputs/baselines_{args.dataset}{tag}.json'
     with open(out, 'w') as f:
         json.dump(payload, f, indent=2, default=float)
     print(f"\nTotal runtime {time.time() - t0:.0f}s. Results written to {out}")
