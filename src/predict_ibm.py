@@ -15,7 +15,7 @@ OUTPUT_SCORES_PATH = 'outputs/ibm_predictions.csv'
 RAW_DATA_PATH = 'data/raw/ibm_aml/HI-Small_Trans.csv'
 METRICS_PATH = 'outputs/metrics_ibm.json'
 
-# --- Hyperparameters (Must match train.py) ---
+# --- Hyperparameters (must match train_edge_common.py) ---
 data = torch.load(PROCESSED_DATA_PATH, weights_only=False)
 
 IN_CHANNELS_X = data.x.size(1)
@@ -55,8 +55,13 @@ def generate_predictions():
     # --- 2. Generating Scores ---
     print("2. Running inference on all transactions...")
     with torch.no_grad():
-        raw_scores, suspicion_scores = model(data)
-        scores = suspicion_scores.cpu().numpy()
+        # Score in chunks of edges: message passing over data.mp_edge_index is shared, the edge head is not.
+        n_edges = data.edge_index.size(1)
+        chunks = []
+        for start in range(0, n_edges, 1_000_000):
+            idx = torch.arange(start, min(start + 1_000_000, n_edges), device=device)
+            chunks.append(model(data, idx)[1].reshape(-1).cpu())
+        scores = torch.cat(chunks).numpy()
 
     # --- 3. Merging with Original Data ---
     print("3. Merging scores with original transactions...")
@@ -94,6 +99,14 @@ def generate_predictions():
     'TX_TYPE', 'IS_FRAUD', 'SUSPICION_SCORE', 'PREDICTED_FRAUD'
 ]].copy()
 
+    # Which split each transaction belongs to, so views can separate training rows from held-out ones.
+    split = np.full(len(df_output), 'unassigned', dtype=object)
+    for name in ('train', 'val', 'test'):
+        mask = getattr(data, f'{name}_mask', None)
+        if mask is not None:
+            split[mask.cpu().numpy()] = name
+    df_output['SPLIT'] = split
+
     # --- 4. Saving Results ---
     os.makedirs(os.path.dirname(OUTPUT_SCORES_PATH), exist_ok=True)
     df_output.to_csv(OUTPUT_SCORES_PATH, index=False)
@@ -110,9 +123,9 @@ def generate_predictions():
 if __name__ == "__main__":
     if not os.path.exists(MODEL_CHECKPOINT_PATH):
         print(f"Error: Model checkpoint not found at {MODEL_CHECKPOINT_PATH}.")
-        print("Please run 'python src/train.py' first.")
+        print("Please run 'python src/train_ibm.py' first.")
     elif not os.path.exists(PROCESSED_DATA_PATH):
         print(f"Error: Processed data not found at {PROCESSED_DATA_PATH}.")
-        print("Please run 'python src/data_preprocessing.py' first.")
+        print("Please run 'python src/data_preprocessing_ibm.py' first.")
     else:
         generate_predictions()
