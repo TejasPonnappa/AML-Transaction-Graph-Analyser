@@ -64,3 +64,26 @@ def test_predicted_fraud_uses_saved_threshold(env, threshold):
         assert df["PREDICTED_FRAUD"].all()
     if threshold == 2.0:
         assert not df["PREDICTED_FRAUD"].any()
+
+
+def test_split_column_comes_from_the_graph_masks_and_mp_edges_are_used(env, load_script, tmp_path, monkeypatch):
+    pytest.importorskip("tabulate")
+    graph = make_graph(n_nodes=8, n_edges=N_EDGES, x_dim=5, edge_dim=4)
+    graph.train_mask = torch.arange(N_EDGES) < 8
+    graph.val_mask = (torch.arange(N_EDGES) >= 8) & (torch.arange(N_EDGES) < 10)
+    graph.test_mask = torch.arange(N_EDGES) >= 10
+    graph.mp_edge_index = graph.edge_index[:, graph.train_mask]
+    mod = load_script("predict_ibm", "data/processed/graph_data_ibm.pt", graph)
+    model = AMLGraphSAGE(mod.IN_CHANNELS_X, mod.IN_CHANNELS_EDGE, mod.HIDDEN_CHANNELS, mod.OUT_CHANNELS_NODE)
+    ckpt, out = tmp_path / "c.pth", tmp_path / "o" / "p.csv"
+    torch.save(model.state_dict(), ckpt)
+    raw = tmp_path / "raw.csv"
+    pd.DataFrame({"Account": [f"A{i}" for i in range(N_EDGES)], "Account.1": [f"B{i}" for i in range(N_EDGES)],
+                  "Amount Paid": [1.0] * N_EDGES, "Payment Format": ["ACH"] * N_EDGES,
+                  "Is Laundering": [0] * N_EDGES}).to_csv(raw, index=False)
+    for name, value in (("MODEL_CHECKPOINT_PATH", ckpt), ("OUTPUT_SCORES_PATH", out), ("RAW_DATA_PATH", raw),
+                        ("METRICS_PATH", tmp_path / "none.json")):
+        monkeypatch.setattr(mod, name, str(value))
+    mod.generate_predictions()
+    df = pd.read_csv(out)
+    assert df["SPLIT"].tolist() == ["train"] * 8 + ["val"] * 2 + ["test"] * 2
