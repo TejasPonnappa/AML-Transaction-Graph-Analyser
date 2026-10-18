@@ -37,7 +37,7 @@ AMLSim writes `outputs/suspicion_scores.csv`, `metrics.json` and `model_checkpoi
 
 - **Preprocessing** builds a PyTorch Geometric graph. Node features are per-account aggregates (degree, amounts sent and received). Edge features are log-amount, payment type and, for IBM, a currency-mismatch flag and pair frequency. IBM uses a chronological split and Elliptic a time-step split; AMLSim uses a stratified random split.
 - **Model** (`src/model.py`) applies two `SAGEConv` layers, then an MLP on `[sender embedding, receiver embedding, edge features]` to score each transaction. Elliptic uses `src/model_bitcoin.py`, a node classifier with BatchNorm and a residual connection.
-- **Training** uses a class-weighted loss, early stopping on validation AUC (Elliptic: F1), and a decision threshold tuned on the validation set. The threshold and test metrics are saved to the metrics JSON.
+- **Training** (`src/training_utils.py`) uses a class-weighted loss, selects the checkpoint and stops early on validation PR-AUC, and takes the decision threshold from the validation precision-recall curve (max F1). Test data is used only for the final report. `--seeds N` trains N seeds, keeps the best on validation and records the spread in the metrics JSON. `python src/baselines.py <dataset>` runs tree-model baselines on the same splits (see `docs/baseline_results.md`).
 - **Prediction** scores every row, including the training rows, and applies the saved threshold. The dashboard reads the CSV and metrics JSON from `outputs/` and takes its thresholds and headline metrics from the JSON.
 
 ## Dashboard

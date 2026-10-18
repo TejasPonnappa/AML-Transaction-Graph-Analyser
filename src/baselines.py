@@ -23,7 +23,9 @@ import time
 import numpy as np
 import pandas as pd
 from sklearn.ensemble import HistGradientBoostingClassifier, RandomForestClassifier
-from sklearn.metrics import average_precision_score, precision_recall_curve, roc_auc_score
+from sklearn.metrics import average_precision_score, roc_auc_score
+
+from training_utils import tune_threshold
 
 AMLSIM = dict(raw='data/raw/amlsim_transactions.csv', graph='data/processed/graph_data.pt',
               metrics='outputs/metrics.json')
@@ -38,13 +40,6 @@ SHUTDOWN_STEP = 43   # Elliptic dark-market shutdown (from the dataset's literat
 
 
 # --------------------------------------------------------------------------- metrics
-def tune_threshold(y, p):
-    """Threshold maximising F1 on the precision-recall curve (validation only)."""
-    precision, recall, thresholds = precision_recall_curve(y, p)
-    f1 = 2 * precision[:-1] * recall[:-1] / np.maximum(precision[:-1] + recall[:-1], 1e-12)
-    return float(thresholds[int(np.argmax(f1))]) if len(thresholds) else 0.5
-
-
 def evaluate(y, p, thr):
     pred = p >= thr
     tp = int((pred & (y == 1)).sum())
