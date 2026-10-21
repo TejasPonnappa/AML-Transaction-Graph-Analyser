@@ -162,9 +162,8 @@ def build_ibm(feature_set='past'):
 
     # Days on which volume collapses (under 1% of the median day) are reported separately: there the laundering rate is
     # orders of magnitude higher, which lifts pooled PR-AUC without saying anything about the normal regime.
-    day = ts.dt.floor('D')
-    daily = day.value_counts()
-    tail = day.isin(daily.index[daily < 0.01 * daily.median()]).to_numpy()
+    from ibm_features import low_volume_tail_mask
+    tail = low_volume_tail_mask(ts)
     regimes = {'normal-volume days': ~tail, 'low-volume tail days': tail}
 
     if feature_set in ('past', 'past_graph'):

@@ -201,3 +201,13 @@ def build_past_only_graph_features(df, src, dst):
     X = np.column_stack([np.log1p(np.asarray(col, dtype=float)) for col in cols]).astype(np.float32)
     assert X.shape[1] == len(GRAPH_FEATURE_NAMES), (X.shape, len(GRAPH_FEATURE_NAMES))
     return X, GRAPH_FEATURE_NAMES
+
+
+def low_volume_tail_mask(timestamps, fraction=0.01):
+    """
+    True for rows on days whose transaction count is under `fraction` of the median day. In the IBM data these are
+    the last days, where activity almost stops but laundering continues, so the laundering rate is ~60% instead of ~0.1%.
+    """
+    day = pd.to_datetime(timestamps).dt.floor('D')
+    daily = day.value_counts()
+    return day.isin(daily.index[daily < fraction * daily.median()]).to_numpy()
