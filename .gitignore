@@ -8,3 +8,5 @@ outputs/*.png
 __pycache__/
 *.pyc
 .claude/
+outputs/*.npz
+outputs/*.joblib
