@@ -12,6 +12,7 @@ Test data is touched only for the final report.
 """
 import copy
 import random
+import time
 
 import numpy as np
 import torch
@@ -59,7 +60,7 @@ def _state_copy(model):
 
 
 def run_training(*, build_model, loss_fn, outputs_fn, data, y, masks, device, seeds, num_epochs, lr, patience,
-                 log=print):
+                 log=print, max_seconds=None):
     """
     build_model()            -> fresh nn.Module
     loss_fn(raw, target)     -> scalar loss on the selected rows
@@ -68,7 +69,8 @@ def run_training(*, build_model, loss_fn, outputs_fn, data, y, masks, device, se
     masks                    -> dict of boolean tensors: 'train', 'val', 'test'
 
     Returns {'runs': [...], 'best': index of the run with the best validation PR-AUC}. Each run holds
-    the selected state dict, history, validation/test probabilities and metrics.
+    the selected state dict, history, validation/test probabilities and metrics. `max_seconds` caps the wall-clock
+    time of each seed's training loop; the best checkpoint so far is kept when it is hit.
     """
     train_idx, val_idx, test_idx = (torch.where(masks[k])[0] for k in ('train', 'val', 'test'))
     y_np = y.detach().cpu().numpy()
@@ -80,6 +82,8 @@ def run_training(*, build_model, loss_fn, outputs_fn, data, y, masks, device, se
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', patience=10, factor=0.5)
         history = {'epoch': [], 'train_loss': [], 'val_loss': [], 'val_pr_auc': []}
         best_ap, best_state, wait = -1.0, None, 0
+        started = time.time()
+        stopped_by_time = False
         for epoch in range(1, num_epochs + 1):
             model.train()
             optimizer.zero_grad()
@@ -108,6 +112,10 @@ def run_training(*, build_model, loss_fn, outputs_fn, data, y, masks, device, se
             if wait >= patience:
                 log(f"seed {seed}: early stop at epoch {epoch} (no validation PR-AUC gain in {patience} epochs)")
                 break
+            if max_seconds and time.time() - started > max_seconds:
+                log(f"seed {seed}: stopped at epoch {epoch}: time limit of {max_seconds / 60:.0f} min reached")
+                stopped_by_time = True
+                break
 
         model.load_state_dict(best_state)
         model.eval()
@@ -119,7 +127,10 @@ def run_training(*, build_model, loss_fn, outputs_fn, data, y, masks, device, se
         test = binary_report(yt, pt, threshold)
         test.update(pr_auc=safe_average_precision(yt, pt), roc_auc=safe_roc_auc(yt, pt),
                     f1_at_0_5=binary_report(yt, pt, 0.5)['f1'], threshold=threshold)
-        runs.append(dict(seed=seed, val_pr_auc=best_ap, state=best_state, history=history, test=test))
+        runs.append(dict(seed=seed, val_pr_auc=best_ap, state=best_state, history=history, test=test,
+                         epochs_run=len(history['epoch']), stopped_by_time=stopped_by_time,
+                         train_seconds=time.time() - started,
+                         val_idx=val_idx.cpu().numpy(), val_prob=pv, test_idx=test_idx.cpu().numpy(), test_prob=pt))
         log(f"seed {seed}: val PR-AUC {best_ap:.4f} | test PR-AUC {test['pr_auc']:.4f} | threshold {threshold:.4f} "
             f"| precision {test['precision']:.3f} recall {test['recall']:.3f} F1 {test['f1']:.3f}")
     best = int(np.argmax([r['val_pr_auc'] for r in runs]))

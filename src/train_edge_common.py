@@ -8,7 +8,8 @@ import matplotlib.pyplot as plt
 import torch
 
 import torch_geometric.data.data
-from model import AMLGraphSAGE
+import numpy as np
+from model import AMLGraphSAGE, EdgeAwareGNN
 from training_utils import run_training, summarise_runs
 
 torch.serialization.add_safe_globals([torch_geometric.data.data.Data])
@@ -33,7 +34,8 @@ def plot_training_curves(history, out_path):
 
 
 def train_edge_model(*, processed_path, checkpoint_path, metrics_path, curves_path, seeds, num_epochs=200,
-                     lr=0.01, patience=25, pos_weight_multiplier=1.0, log=print):
+                     lr=0.01, patience=25, pos_weight_multiplier=1.0, log=print, model_kind='sage',
+                     max_seconds=None, scores_path=None):
     log("1. Loading data...")
     data = torch.load(processed_path, weights_only=False)
     in_x, in_edge = data.x.size(1), data.edge_attr.size(1)
@@ -51,22 +53,30 @@ def train_edge_model(*, processed_path, checkpoint_path, metrics_path, curves_pa
 
     log(f"\n2. Training {len(seeds)} seed(s); checkpoints chosen on validation PR-AUC...")
     result = run_training(
-        build_model=lambda: AMLGraphSAGE(in_x, in_edge, HIDDEN_CHANNELS, OUT_CHANNELS_NODE),
+        build_model=lambda: (EdgeAwareGNN if model_kind == 'gine' else AMLGraphSAGE)(
+            in_x, in_edge, HIDDEN_CHANNELS, OUT_CHANNELS_NODE),
         loss_fn=criterion,
         outputs_fn=lambda model, d, idx: tuple(t.reshape(-1) for t in model(d, idx)),
         data=data, y=y,
         masks={'train': data.train_mask, 'val': data.val_mask, 'test': data.test_mask},
-        device=device, seeds=seeds, num_epochs=num_epochs, lr=lr, patience=patience, log=log)
+        device=device, seeds=seeds, num_epochs=num_epochs, lr=lr, patience=patience, log=log,
+        max_seconds=max_seconds)
 
     best = result['runs'][result['best']]
     os.makedirs(os.path.dirname(checkpoint_path), exist_ok=True)
     torch.save(best['state'], checkpoint_path)
     payload = summarise_runs(result, extra={
         'pos_weight_multiplier': pos_weight_multiplier, 'edge_attr_dim': in_edge,
-        'num_epochs_max': num_epochs})
+        'num_epochs_max': num_epochs, 'model_kind': model_kind, 'max_seconds': max_seconds,
+        'train_seconds': [round(r['train_seconds']) for r in result['runs']],
+        'epochs_run': [r['epochs_run'] for r in result['runs']],
+        'stopped_by_time': [r['stopped_by_time'] for r in result['runs']]})
     with open(metrics_path, 'w') as f:
         json.dump(payload, f, indent=2)
     plot_training_curves(best['history'], curves_path)
+    if scores_path:
+        np.savez(scores_path, val_idx=best['val_idx'], val_prob=best['val_prob'],
+                 test_idx=best['test_idx'], test_prob=best['test_prob'])
 
     t = best['test']
     log(f"\n3. Test (selected seed {best['seed']}, threshold {t['threshold']:.4f} from validation): "
