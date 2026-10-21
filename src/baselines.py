@@ -265,11 +265,14 @@ def run_elliptic(seeds, models):
     results, per_step = {}, {}
     for set_name, X in sets.items():
         for model_name in models:
-            runs, step_runs = [], []
+            runs, step_runs, regime_runs = [], [], {}
             for seed in range(seeds):
                 p_val, p_test, val, test, fit_s = fit_predict(model_name, seed, X, y, masks)
                 thr = tune_threshold(y[val], p_val)
                 runs.append(evaluate(y[test], p_test, thr))
+                for rname, rmask in ((f'steps 39-{SHUTDOWN_STEP - 1} (before step {SHUTDOWN_STEP})', steps[test] < SHUTDOWN_STEP),
+                                     (f'steps {SHUTDOWN_STEP}-49 (from step {SHUTDOWN_STEP})', steps[test] >= SHUTDOWN_STEP)):
+                    regime_runs.setdefault(rname, []).append(evaluate(y[test][rmask], p_test[rmask], thr))
                 rows = {}
                 for step in TEST_STEPS:
                     m = steps[test] == step
@@ -280,6 +283,8 @@ def run_elliptic(seeds, models):
                       flush=True)
             key = f"{model_name} | {set_name}"
             results[key] = dict(summary=summarise(runs), seeds=seeds)
+            for rname, rr in regime_runs.items():
+                results[f"{key} | {rname}"] = dict(summary=summarise(rr), seeds=seeds)
             per_step[key] = {step: {k: float(np.nanmean([r[step][k] for r in step_runs if step in r]))
                                     for k in ('precision', 'recall', 'f1')} | {'n_pos': step_runs[0][step]['n_pos']}
                              for step in step_runs[0]}
