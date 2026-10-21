@@ -31,7 +31,10 @@ def preprocess_bitcoin_data():
     
     # 2. Prepare Node Features (X)
     
-    X = df_features.iloc[:, 1:].values 
+    # Column 0 is txId and column 1 the time step. The time step is NOT a model input: train steps (1-34) and test
+    # steps (39-49) do not overlap, so a raw step number can only be extrapolated, never learned. It is kept
+    # as data.time_step for splits and per-step reporting.
+    X = df_features.iloc[:, 2:].values
     X = torch.tensor(X, dtype=torch.float)
     
     # Create a mapping from node ID (txId) to its integer index (0 to N-1)
@@ -97,6 +100,7 @@ def preprocess_bitcoin_data():
         x=X,
         edge_index=edge_index,
         y=Y, 
+        time_step=time_steps,
         train_mask=train_mask,
         val_mask=val_mask,
         test_mask=test_mask
