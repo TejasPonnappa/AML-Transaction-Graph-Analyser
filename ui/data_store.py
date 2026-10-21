@@ -20,7 +20,7 @@ CACHE_DIR = 'outputs/.graph_cache/ui_data'
 
 EDGE_PROJECTS = {
     'ibm': dict(
-        scores='outputs/ibm_predictions.csv',
+        scores='outputs/ibm_predictions_rf.csv',      # RandomForest model of record (src/predict_ibm_rf.py)
         graph='data/processed/graph_data_ibm.pt',
         raw='data/raw/ibm_aml/HI-Small_Trans.csv',
         raw_time='Timestamp',
@@ -92,6 +92,10 @@ def build_edge_parquet(project):
                 df['TIMESTAMP'] = raw_time.values
             except ValueError:
                 pass  # unexpected timestamp format: the date filter is simply not offered
+
+    if 'TIMESTAMP' in df.columns and cfg['time_kind'] == 'datetime':
+        from src.ibm_features import low_volume_tail_mask
+        df['TAIL'] = low_volume_tail_mask(pd.Series(df['TIMESTAMP']))     # days with almost no volume but ~60% laundering
 
     if os.path.exists(cfg['graph']):
         df['SPLIT'] = _split_column(cfg['graph'], n)

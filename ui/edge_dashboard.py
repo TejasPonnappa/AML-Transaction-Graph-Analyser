@@ -44,6 +44,16 @@ def _sidebar_filters(df, cfg, metrics):
     if has_split:
         mask &= df['SPLIT'].isin(SPLIT_CHOICES[split_label])
 
+    if 'TAIL' in df.columns:
+        regime = st.sidebar.radio(
+            "Volume regime", ["Normal-volume days", "All days", "Low-volume tail days"], key=f"{key}_regime",
+            help="The last days of the IBM data have almost no volume but about 60% laundering. They lift pooled "
+                 "PR-AUC and precision, so the default view leaves them out.")
+        if regime == "Normal-volume days":
+            mask &= ~df['TAIL']
+        elif regime == "Low-volume tail days":
+            mask &= df['TAIL']
+
     types = list(df['TX_TYPE'].cat.categories) if 'TX_TYPE' in df.columns else []
     if len(types) > 1:
         chosen = st.sidebar.multiselect("Transaction type", types, default=[], placeholder="All types",
@@ -199,6 +209,7 @@ def render_edge_project(cfg):
         with right:
             theme.section("Held-out test evaluation", "From the last training run (metrics file).")
             theme.evaluation_table(metrics)
+            theme.regime_table(metrics)
         theme.section("Accounts with the most alerts", "Ranked by alert count, then highest model score.")
         if alerts.empty:
             theme.empty_state("No alerts at this threshold.")

@@ -248,6 +248,19 @@ _EVAL_LABELS = [
 ]
 
 
+def regime_table(metrics):
+    """Held-out test metrics per volume regime, when the metrics file has them."""
+    regimes = metrics.get("regimes") if metrics else None
+    if not regimes:
+        return
+    rows = [{"Test segment": name, "Rows": r["rows"], "Laundering": r["positives"], "PR-AUC": r["pr_auc"],
+             "Precision": r["precision"], "Recall": r["recall"], "F1": r["f1"]} for name, r in regimes.items()]
+    st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True, column_config={
+        "Rows": st.column_config.NumberColumn(format="%d"), "Laundering": st.column_config.NumberColumn(format="%d"),
+        "PR-AUC": st.column_config.NumberColumn(format="%.3f"), "Precision": st.column_config.NumberColumn(format="%.3f"),
+        "Recall": st.column_config.NumberColumn(format="%.3f"), "F1": st.column_config.NumberColumn(format="%.3f")})
+
+
 def evaluation_table(metrics):
     """Held-out test metrics as read from metrics*.json, plus the confusion matrix."""
     if not metrics:
