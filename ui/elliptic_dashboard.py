@@ -169,6 +169,7 @@ def render_elliptic():
         with right:
             theme.section("Held-out test evaluation", "From the last training run (metrics file).")
             theme.evaluation_table(metrics)
+            theme.regime_table(metrics)
         theme.section("Alerts by time step", "Number of alerts per time step in the current view.")
         per_step = view[is_alert].groupby('TimeStep').size().reindex(
             range(int(view['TimeStep'].min()), int(view['TimeStep'].max()) + 1), fill_value=0)
