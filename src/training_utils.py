@@ -60,7 +60,7 @@ def _state_copy(model):
 
 
 def run_training(*, build_model, loss_fn, outputs_fn, data, y, masks, device, seeds, num_epochs, lr, patience,
-                 log=print, max_seconds=None):
+                 log=print, max_seconds=None, on_best=None):
     """
     build_model()            -> fresh nn.Module
     loss_fn(raw, target)     -> scalar loss on the selected rows
@@ -104,6 +104,8 @@ def run_training(*, build_model, loss_fn, outputs_fn, data, y, masks, device, se
             improved = val_ap > best_ap
             if improved:
                 best_ap, best_state, wait = val_ap, _state_copy(model), 0
+                if on_best:
+                    on_best(seed, epoch, val_ap, best_state)
             else:
                 wait += 1
             if epoch % 10 == 0 or improved:

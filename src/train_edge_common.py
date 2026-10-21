@@ -33,6 +33,14 @@ def plot_training_curves(history, out_path):
     plt.close()
 
 
+def _save_progress(checkpoint_path):
+    """Writes the best-so-far weights next to the final checkpoint, so an interrupted run keeps its progress."""
+    def on_best(seed, epoch, val_ap, state):
+        os.makedirs(os.path.dirname(checkpoint_path), exist_ok=True)
+        torch.save(state, checkpoint_path + '.partial')
+    return on_best
+
+
 def train_edge_model(*, processed_path, checkpoint_path, metrics_path, curves_path, seeds, num_epochs=200,
                      lr=0.01, patience=25, pos_weight_multiplier=1.0, log=print, model_kind='sage',
                      max_seconds=None, scores_path=None):
@@ -60,7 +68,7 @@ def train_edge_model(*, processed_path, checkpoint_path, metrics_path, curves_pa
         data=data, y=y,
         masks={'train': data.train_mask, 'val': data.val_mask, 'test': data.test_mask},
         device=device, seeds=seeds, num_epochs=num_epochs, lr=lr, patience=patience, log=log,
-        max_seconds=max_seconds)
+        max_seconds=max_seconds, on_best=_save_progress(checkpoint_path))
 
     best = result['runs'][result['best']]
     os.makedirs(os.path.dirname(checkpoint_path), exist_ok=True)
