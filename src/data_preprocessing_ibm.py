@@ -1,4 +1,3 @@
-import argparse
 import os
 
 import numpy as np
@@ -6,13 +5,12 @@ import pandas as pd
 import torch
 from torch_geometric.data import Data
 
-from ibm_features import build_past_only_features, build_past_only_graph_features
+from ibm_features import build_past_only_features
 
 # --- Configuration ---
 RAW_TRANS_PATH = 'data/raw/ibm_aml/HI-Small_Trans.csv'
 RAW_ACCOUNTS_PATH = 'data/raw/ibm_aml/HI-Small_accounts.csv'
 PROCESSED_DATA_PATH = 'data/processed/graph_data_ibm.pt'
-GRAPH_FEATURES_DATA_PATH = 'data/processed/graph_data_ibm_graphfeat.pt'   # variant with the 13 structure features
 TRAIN_FRACTION, VAL_FRACTION = 0.70, 0.85   # chronological cut points
 
 
@@ -23,7 +21,7 @@ def _zscore(values, reference):
     return (values - mean) / (std + 1e-8)
 
 
-def preprocess_ibm_data(include_graph_features=False, out_path=None):
+def preprocess_ibm_data():
     """
     Builds a PyG Data object for EDGE classification (predicting 'Is Laundering' per transaction) with no
     information from the future:
@@ -32,8 +30,6 @@ def preprocess_ibm_data(include_graph_features=False, out_path=None):
       * edge_attr holds past-only features (see ibm_features.py), standardised with training-period statistics;
       * node features are aggregates of TRAINING-period edges only, standardised on those statistics;
       * `mp_edge_index` is the set of training edges: message passing never sees validation or test edges.
-
-    With include_graph_features the 13 past-only structure features (ibm_features.py) are appended to edge_attr.
 
     Row order of the CSV is preserved (predict_ibm.py relies on it).
     """
@@ -78,10 +74,6 @@ def preprocess_ibm_data(include_graph_features=False, out_path=None):
     # 4. Edge features: past-only history, standardised on the training period
     print("2. Engineering past-only edge features...")
     features, names = build_past_only_features(df, src, dst)
-    if include_graph_features:
-        graph_features, graph_names = build_past_only_graph_features(df, src, dst)
-        features = np.hstack([features, graph_features])
-        names = list(names) + list(graph_names)
     features = _zscore(features, features[train_np]).astype(np.float32)
     edge_attr = torch.tensor(features, dtype=torch.float)
     print(f"   -> edge_attr dimension: {edge_attr.size(1)}")
@@ -109,25 +101,17 @@ def preprocess_ibm_data(include_graph_features=False, out_path=None):
         val_mask=masks['val'],
         test_mask=masks['test'],
         mp_edge_index=edge_index[:, masks['train']],
-        mp_edge_mask=masks['train'].clone(),      # rows of edge_attr that go with mp_edge_index
     )
     data.edge_feature_names = list(names)
 
-    target = out_path or PROCESSED_DATA_PATH
-    os.makedirs(os.path.dirname(target), exist_ok=True)
-    torch.save(data, target)
-    print(f"4. ✅ IBM AML Graph Data saved successfully to: {target}")
+    os.makedirs(os.path.dirname(PROCESSED_DATA_PATH), exist_ok=True)
+    torch.save(data, PROCESSED_DATA_PATH)
+    print(f"4. ✅ IBM AML Graph Data saved successfully to: {PROCESSED_DATA_PATH}")
     return data
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description="Build the IBM AML graph (no future information).")
-    parser.add_argument('--graph-features', action='store_true',
-                        help=f"append the structure features and write {GRAPH_FEATURES_DATA_PATH}")
-    args = parser.parse_args()
     if not os.path.exists(RAW_TRANS_PATH):
         print(f"Error: Raw data not found at {RAW_TRANS_PATH}. Download HI-Small_Trans.csv from Kaggle first.")
-    elif args.graph_features:
-        preprocess_ibm_data(include_graph_features=True, out_path=GRAPH_FEATURES_DATA_PATH)
     else:
         preprocess_ibm_data()
