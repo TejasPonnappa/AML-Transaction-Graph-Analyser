@@ -1,0 +1,232 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>AML visuals</title>
+<style>
+  :root { --bg:#0e1217; --surface:#151b23; --border:#252d38; --text:#e6e9ee; --muted:#8b95a3;
+          --accent:#4ea1c8; --high:#e5534b; --review:#c9973d; --neutral:#5c6773; }
+  html, body { margin:0; height:100%; background:var(--bg); color:var(--text); overflow:hidden;
+               font-family: Inter, 'Segoe UI', system-ui, sans-serif; font-size:12px; }
+  #stage { position:absolute; inset:0; }
+  .panel { position:absolute; background:rgba(21,27,35,.92); border:1px solid var(--border); border-radius:6px;
+           padding:8px 10px; color:var(--text); }
+  #legend { left:12px; bottom:12px; line-height:1.7; }
+  #legend i { display:inline-block; width:18px; height:0; border-top:3px solid var(--neutral); vertical-align:middle; margin-right:7px; }
+  #legend b { display:inline-block; width:11px; height:11px; border-radius:50%; vertical-align:middle; margin-right:7px; }
+  #tip { display:none; pointer-events:none; max-width:300px; z-index:5; white-space:pre-line; }
+  #caption { left:12px; right:12px; top:10px; font-size:13px; min-height:18px; }
+  #caption .step { color:var(--muted); }
+  #caption strong { color:var(--text); }
+  button { position:absolute; background:var(--surface); color:var(--text); border:1px solid var(--border); border-radius:6px;
+           padding:5px 12px; cursor:pointer; font:inherit; }
+  button:hover { border-color:var(--accent); }
+  #replay { right:12px; bottom:12px; } #fit { right:92px; bottom:12px; }
+  svg text { fill:var(--text); }
+  .dim-text { fill:var(--muted); }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<div id="tip" class="panel"></div>
+<div id="legend" class="panel" style="display:none"></div>
+<div id="caption" class="panel" style="display:none"></div>
+<button id="fit" style="display:none">Zoom to path</button>
+<button id="replay" style="display:none">Replay</button>
+
+<script src="vendor/cytoscape.min.js"></script>
+<script src="vendor/d3.min.js"></script>
+<script>
+// ---- Streamlit component protocol (no build step) -------------------------------------------------------------
+function send(type, data) { window.parent.postMessage(Object.assign({ isStreamlitMessage: true, type: type }, data), "*"); }
+function setHeight(h) { send("streamlit:setFrameHeight", { height: h }); }
+function setValue(v) { send("streamlit:setComponentValue", { value: v, dataType: "json" }); }
+
+const C = { bg:'#0e1217', surface:'#151b23', border:'#252d38', text:'#e6e9ee', muted:'#8b95a3',
+            accent:'#4ea1c8', high:'#e5534b', review:'#c9973d', neutral:'#5c6773' };
+const stage = document.getElementById('stage'), tip = document.getElementById('tip');
+let lastKey = null, cy = null, nonce = 0, timers = [];
+
+function fmt(v) {
+  if (!isFinite(v)) return String(v);
+  const a = Math.abs(v);
+  if (a >= 1000) return Math.round(v).toLocaleString('en-US');
+  if (a >= 100) return v.toFixed(0);
+  if (a >= 10) return v.toFixed(1).replace(/\.0$/, '');
+  return v.toFixed(2).replace(/0$/, '').replace(/\.0$/, '');
+}
+function showTip(html, x, y) {
+  tip.textContent = html; tip.style.display = 'block';
+  const w = tip.offsetWidth, h = tip.offsetHeight;
+  tip.style.left = Math.min(Math.max(8, x + 14), window.innerWidth - w - 8) + 'px';
+  tip.style.top = Math.min(Math.max(8, y + 14), window.innerHeight - h - 8) + 'px';
+}
+function hideTip() { tip.style.display = 'none'; }
+function clearAll() {
+  timers.forEach(clearTimeout); timers = [];
+  if (cy) { cy.destroy(); cy = null; }
+  stage.innerHTML = '';
+  ['legend', 'caption', 'fit', 'replay'].forEach(id => document.getElementById(id).style.display = 'none');
+}
+
+// ---- Network ------------------------------------------------------------------------------------------------
+function renderGraph(a) {
+  const legend = document.getElementById('legend');
+  legend.style.display = 'block';
+  const ego = a.layout === 'concentric';
+  legend.innerHTML = ego
+    ? '<div><b style="background:' + C.high + '"></b>Alert (score at or above threshold)</div>' +
+      '<div><b style="background:#4a5565"></b>Below threshold</div>' +
+      '<div><b style="background:transparent;border:2px solid ' + C.accent + '"></b>Searched account</div>' +
+      '<div><i style="border-color:' + C.high + ';border-top-style:dashed"></i>Closes a cycle</div>' +
+      '<div><i style="border-color:' + C.high + ';border-top-style:dotted"></i>Pass-through (in, then out in a day)</div>'
+    : '<div><b style="background:' + C.high + '"></b>Alert account</div><div style="color:#8b95a3">Larger = higher score</div>';
+  legend.style.fontSize = '11px'; legend.style.lineHeight = '1.5';
+  const els = [];
+  a.nodes.forEach(n => els.push({ data: { id: n.id, label: n.label + (n.badges && n.badges.length ? '\n' + n.badges.join(' · ') : ''),
+    score: n.score, alert: n.alert ? 1 : 0, size: n.size * 1.25, center: n.center ? 1 : 0, labelled: n.labelled ? 1 : 0, tip: n.tip } }));
+  a.edges.forEach(e => els.push({ data: { id: e.id, source: e.source, target: e.target, score: e.score,
+    alert: e.alert ? 1 : 0, kind: e.kind || 'normal', w: e.w, tip: e.tip } }));
+  const layout = a.layout === 'concentric'
+    ? { name: 'concentric', animate: true, animationDuration: 700, padding: 40, minNodeSpacing: 34,
+        concentric: n => n.data('center') ? 10 : (n.data('alert') ? 2 : 1), levelWidth: () => 1 }
+    : { name: 'cose', animate: true, animationDuration: 1100, padding: 36, nodeRepulsion: () => 14000, idealEdgeLength: () => 70,
+        edgeElasticity: () => 80, gravity: 0.6, numIter: 900, randomize: true };
+  cy = cytoscape({
+    container: stage, elements: els, wheelSensitivity: 0.25, minZoom: 0.2, maxZoom: 3.5,
+    style: [
+      { selector: 'node', style: { width: 'data(size)', height: 'data(size)', 'background-color': 'mapData(score, 0, 1, #3b4553, #7a8594)',
+        label: 'data(label)', color: C.text, 'font-size': 11, 'text-wrap': 'wrap', 'text-valign': 'bottom', 'text-margin-y': 4,
+        'text-outline-color': C.bg, 'text-outline-width': 2, 'border-width': 1, 'border-color': '#2d3643' } },
+      { selector: 'node[alert = 1]', style: { 'background-color': C.high, 'border-color': '#f08a84' } },
+      { selector: 'node[labelled = 1]', style: { 'border-width': 3, 'border-color': '#e6e9ee' } },
+      { selector: 'node[center = 1]', style: { 'border-width': 4, 'border-color': C.accent, 'z-index': 20 } },
+      { selector: 'edge', style: { width: 'data(w)', 'line-color': '#3a4452', 'target-arrow-color': '#3a4452', 'target-arrow-shape': 'triangle',
+        'curve-style': 'bezier', 'arrow-scale': 0.8, opacity: 0.85 } },
+      { selector: 'edge[alert = 1]', style: { 'line-color': C.high, 'target-arrow-color': C.high } },
+      { selector: 'edge[kind = "cycle"]', style: { 'line-color': C.high, 'target-arrow-color': C.high, 'line-style': 'dashed', opacity: 1 } },
+      { selector: 'edge[kind = "pass"]', style: { 'line-color': C.high, 'target-arrow-color': C.high, 'line-style': 'dotted', opacity: 1 } },
+      { selector: '.dim', style: { opacity: 0.12 } },
+      { selector: '.pulse', style: { 'border-width': 5, 'border-color': '#f08a84' } },
+    ],
+    layout: layout,
+  });
+  cy.one('layoutstop', () => { cy.fit(undefined, 34); pulseAlerts(); });
+  cy.on('mouseover', 'node', ev => {
+    const n = ev.target, keep = n.closedNeighborhood();
+    cy.elements().not(keep).addClass('dim');
+    const p = ev.renderedPosition; showTip(n.data('tip'), p.x, p.y);
+  });
+  cy.on('mouseout', 'node', () => { cy.elements().removeClass('dim'); hideTip(); });
+  cy.on('mouseover', 'edge', ev => { const p = ev.renderedPosition; showTip(ev.target.data('tip'), p.x, p.y); });
+  cy.on('mouseout', 'edge', hideTip);
+  cy.on('tap', 'node', ev => { setValue({ type: 'node', id: ev.target.id(), nonce: Date.now() }); });
+  setHeight(a.height || 560);
+}
+function pulseAlerts() {
+  if (!cy) return;
+  const alerts = cy.nodes('[alert = 1]');
+  if (alerts.length === 0 || alerts.length > 70) return;       // keep it light on big graphs
+  let on = false;
+  const tick = () => {
+    if (!cy) return;
+    on = !on;
+    alerts.forEach(n => { n.animate({ style: { 'border-width': on ? 5 : 1 } }, { duration: 900 }); });
+    timers.push(setTimeout(tick, 950));
+  };
+  tick();
+}
+
+// ---- Decision tree with a travelling transaction -----------------------------------------------------------------
+function nodeText(n) {
+  if (n.text) return n.text;
+  if (n.leaf) return (n.predict_alert ? 'Alert' : 'No alert') + ' - ' + Math.round(n.alert_frac * 100) + '% of ' + n.n.toLocaleString('en-US') + ' similar transactions are alerts';
+  const thr = n.log1p ? Math.expm1(n.threshold) : n.threshold;
+  return n.binary ? n.label + '?' : n.label + ' <= ' + fmt(thr);
+}
+function renderTree(a) {
+  setHeight(a.height || 660);
+  const W = window.innerWidth, H = a.height || 660;
+  const byId = {}; a.tree.nodes.forEach(n => byId[n.id] = n);
+  const build = id => { const n = byId[id]; return Object.assign({}, n, { children: n.leaf ? null : [build(n.left), build(n.right)] }); };
+  const root = d3.hierarchy(build(0));
+  const depth = root.height + 1;
+  const layout = d3.tree().nodeSize([22, Math.max(150, (W - 120) / depth)]);
+  layout(root);
+  const svg = d3.select(stage).append('svg').attr('width', W).attr('height', H);
+  const g = svg.append('g');
+  const pathIds = (a.path || []).map(p => p.id), onPath = new Set(pathIds);
+  const color = d3.scaleLinear().domain([0, 1]).range(['#3b4553', C.high]);
+  const rad = d => 3 + Math.min(8, Math.log10(d.data.n + 1) * 1.5);
+  const link = d3.linkHorizontal().x(d => d.y).y(d => d.x);
+  g.selectAll('path.link').data(root.links()).join('path').attr('class', 'link').attr('d', link).attr('fill', 'none')
+    .attr('stroke', d => onPath.has(d.source.data.id) && onPath.has(d.target.data.id) ? C.accent : '#2a323d')
+    .attr('stroke-width', d => onPath.has(d.source.data.id) && onPath.has(d.target.data.id) ? 2.4 : 0.8)
+    .attr('opacity', d => onPath.has(d.source.data.id) && onPath.has(d.target.data.id) ? 1 : 0.7);
+  const nodes = g.selectAll('g.node').data(root.descendants()).join('g').attr('class', 'node')
+    .attr('transform', d => 'translate(' + d.y + ',' + d.x + ')');
+  nodes.append('circle').attr('r', rad).attr('fill', d => color(d.data.alert_frac))
+    .attr('stroke', d => d.data.leaf && d.data.predict_alert ? '#f08a84' : (onPath.has(d.data.id) ? C.accent : '#2d3643'))
+    .attr('stroke-width', d => onPath.has(d.data.id) ? 2 : 1);
+  const stagger = {}; pathIds.forEach((id, i) => stagger[id] = i % 2 === 0 ? -13 : 17);
+  nodes.filter(d => onPath.has(d.data.id) || d.depth <= 1).append('text')
+    .attr('x', d => d.data.leaf ? 12 : 0).attr('text-anchor', d => d.data.leaf ? 'start' : 'middle')
+    .attr('dy', d => onPath.has(d.data.id) && !d.data.leaf ? stagger[d.data.id] : '0.32em')
+    .attr('font-size', 12).attr('class', d => onPath.has(d.data.id) ? '' : 'dim-text')
+    .attr('font-weight', d => onPath.has(d.data.id) ? 600 : 400)
+    .text(d => nodeText(d.data));
+  nodes.on('mousemove', (ev, d) => showTip(nodeText(d.data) + '\nreaches ' + d.data.n.toLocaleString() + ' transactions\nalerts ' +
+      (d.data.alert_frac * 100).toFixed(1) + '%   laundering ' + (d.data.laundering_rate * 100).toFixed(2) + '%', ev.clientX, ev.clientY))
+    .on('mouseleave', hideTip);
+
+  // initial view: whole tree, scaled to fit
+  const b = g.node().getBBox();
+  const fitAll = () => { const k = Math.min((W - 40) / b.width, (H - 70) / b.height, 1.6);
+    svg.transition().duration(500).call(zoom.transform, d3.zoomIdentity.translate(20 - b.x * k, 60 - b.y * k + (H - 70 - b.height * k) / 2).scale(k)); };
+  const zoom = d3.zoom().scaleExtent([0.2, 6]).on('zoom', ev => g.attr('transform', ev.transform));
+  svg.call(zoom);
+  svg.call(zoom.transform, d3.zoomIdentity);
+  fitAll();
+
+  const cap = document.getElementById('caption'), replay = document.getElementById('replay'), fitBtn = document.getElementById('fit');
+  cap.style.display = 'block'; replay.style.display = 'block';
+  if (!a.path || a.path.length === 0) { cap.innerHTML = '<span class="step">Pick a transaction to watch it travel the tree.</span>'; return; }
+  fitBtn.style.display = 'block'; fitBtn.onclick = () => {
+    const pts = root.descendants().filter(d => onPath.has(d.data.id));
+    const x0 = d3.min(pts, d => d.y) - 30, x1 = d3.max(pts, d => d.y) + 330, y0 = d3.min(pts, d => d.x) - 20, y1 = d3.max(pts, d => d.x) + 20;
+    const k = Math.min(W / (x1 - x0), (H - 70) / (y1 - y0), 2.4);
+    svg.transition().duration(700).call(zoom.transform, d3.zoomIdentity.translate(-x0 * k, 60 - y0 * k).scale(k));
+  };
+
+  const token = g.append('circle').attr('r', 7).attr('fill', C.accent).attr('stroke', C.text).attr('stroke-width', 1.5).attr('opacity', 0);
+  const pos = id => { const d = root.descendants().find(n => n.data.id === id); return [d.y, d.x]; };
+  function play() {
+    timers.forEach(clearTimeout); timers = [];
+    token.interrupt().attr('opacity', 1).attr('transform', 'translate(' + pos(pathIds[0]) + ')');
+    cap.innerHTML = '<span class="step">Start</span> &nbsp; Every transaction enters at the root.';
+    a.path.forEach((p, i) => {
+      timers.push(setTimeout(() => {
+        const to = i + 1 < a.path.length ? pos(a.path[i + 1].id) : pos(p.id);
+        token.transition().duration(i + 1 < a.path.length ? 750 : 1).ease(d3.easeCubicInOut).attr('transform', 'translate(' + to + ')');
+        cap.innerHTML = '<span class="step">Step ' + (i + 1) + ' of ' + a.path.length + '</span> &nbsp; <strong>' + p.text + '</strong>';
+      }, i * 1050));
+    });
+  }
+  replay.onclick = play;
+  play();
+}
+
+// ---- entry point ----------------------------------------------------------------------------------------------
+window.addEventListener('message', ev => {
+  if (!ev.data || ev.data.type !== 'streamlit:render') return;
+  const a = ev.data.args || {};
+  const key = a.sig || null;
+  if (key !== null && key === lastKey) return;                    // same data: keep the layout and animation as they are
+  lastKey = key;
+  clearAll();
+  if (a.mode === 'tree') renderTree(a); else renderGraph(a);
+});
+send('streamlit:componentReady', { apiVersion: 1 });
+</script>
+</body>
+</html>
