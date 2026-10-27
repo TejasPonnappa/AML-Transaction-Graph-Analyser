@@ -211,3 +211,49 @@ def low_volume_tail_mask(timestamps, fraction=0.01):
     day = pd.to_datetime(timestamps).dt.floor('D')
     daily = day.value_counts()
     return day.isin(daily.index[daily < fraction * daily.median()]).to_numpy()
+
+
+def past_window_sum(data_group, data_t, data_amount, query_group, query_t, window):
+    """Sum of `data_amount` over data rows of the query's group with time in [t - window, t)."""
+    data_group = np.asarray(data_group, dtype=np.int64)
+    query_group = np.asarray(query_group, dtype=np.int64)
+    data_t = np.asarray(data_t, dtype=np.int64)
+    query_t = np.asarray(query_t, dtype=np.int64)
+    span = int(max(data_t.max(), query_t.max())) + 1
+    keys = data_group * span + data_t
+    order = np.argsort(keys, kind='stable')
+    sorted_keys = keys[order]
+    prefix = np.concatenate([[0.0], np.cumsum(np.asarray(data_amount, dtype=float)[order])])
+    hi = np.searchsorted(sorted_keys, query_group * span + query_t, side='left')
+    lo = np.searchsorted(sorted_keys, query_group * span + np.maximum(query_t - window, 0), side='left')
+    return prefix[hi] - prefix[lo]
+
+
+# Readable names for the UI, in the order of FEATURE_NAMES + GRAPH_FEATURE_NAMES.
+FEATURE_LABELS = {
+    'log_paid': 'Amount paid (log)', 'log_received': 'Amount received (log)',
+    'currency_mismatch': 'Cross-currency', 'self_loop': 'Self-transfer', 'bank_mismatch': 'Cross-bank',
+    'hour': 'Hour of day', 'day_of_week': 'Day of week',
+    **{f'format_{f}': f'Format: {f}' for f in PAYMENT_FORMATS},
+    'sender_out_prior_count': 'Sender: past outgoing transactions', 'sender_out_prior_sum': 'Sender: past amount sent',
+    'sender_out_secs_since_last': 'Sender: time since last send', 'sender_out_count_1h': 'Sender: sends in last hour',
+    'sender_out_count_1d': 'Sender: sends in last day',
+    'receiver_in_prior_count': 'Receiver: past incoming transactions',
+    'receiver_in_prior_sum': 'Receiver: past amount received',
+    'receiver_in_secs_since_last': 'Receiver: time since last receipt',
+    'receiver_in_count_1h': 'Receiver: receipts in last hour', 'receiver_in_count_1d': 'Receiver: receipts in last day',
+    'sender_in_prior_count': 'Sender: past incoming transactions', 'sender_in_prior_sum': 'Sender: past amount received',
+    'receiver_out_prior_count': 'Receiver: past outgoing transactions', 'receiver_out_prior_sum': 'Receiver: past amount sent',
+    'pair_prior_count': 'Same pair: past transactions', 'pair_secs_since_last': 'Same pair: time since last',
+    'sender_out_distinct_receivers': 'Sender: distinct receivers so far',
+    'sender_out_new_receivers_1h': 'Sender: new receivers in last hour',
+    'sender_out_new_receivers_1d': 'Sender: new receivers in last day',
+    'receiver_in_distinct_senders': 'Receiver: distinct senders so far',
+    'receiver_in_new_senders_1h': 'Receiver: new senders in last hour',
+    'receiver_in_new_senders_1d': 'Receiver: new senders in last day',
+    'sender_in_distinct_senders': 'Sender: distinct senders into it',
+    'receiver_out_distinct_receivers': 'Receiver: distinct receivers of it',
+    'two_hop_chains_into_sender': '2-hop chains into sender', 'two_hop_chains_into_receiver': '2-hop chains into receiver',
+    'reverse_pair_prior_count': 'Reverse transfers so far', 'reverse_pair_secs_since_last': 'Time since reverse transfer',
+    'three_cycle_witnesses': '3-cycles closed',
+}
