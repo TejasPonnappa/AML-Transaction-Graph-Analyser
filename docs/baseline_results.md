@@ -1,5 +1,7 @@
 # Tree-model baselines vs the GNNs
 
+> **Note:** AMLSim was later removed from the project (it is trivially separable, as the results below show), and the Elliptic GNN was retrained without the time step; see `docs/elliptic_results.md`. This document is kept as a record of the measurements at the time.
+
 Measured with `python src/baselines.py <amlsim|ibm|elliptic> --seeds 3` (IBM also `--neg-frac 0.1`). Results are also written to `outputs/baselines_<dataset>.json` (gitignored). Nothing here comes from the literature; there are no unverified numbers in this file.
 
 ## Method

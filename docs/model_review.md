@@ -1,5 +1,7 @@
 # Model review and Phase 3 plan
 
+> **Note:** AMLSim was later removed from the project (it is trivially separable, as the results below show), and the Elliptic GNN was retrained without the time step; see `docs/elliptic_results.md`. This document is kept as a record of the measurements at the time.
+
 Three read-only reviews (AMLSim, IBM AML, Elliptic) of `src/`, `outputs/metrics*.json` and `tests/`, combined into one prioritised plan. Nothing was trained or changed. "Verified" means read in the code (or, for AMLSim data facts, checked on the raw CSV); "estimate" means reasoning, not a measurement in this repo. **Any number attributed to the literature is marked "(unverified)": it was recalled from memory and has not been checked against the papers.**
 
 ## 1. Can the reported metrics be trusted?
