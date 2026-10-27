@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-from ibm_detectors import DETECTORS, evaluate_detectors, pass_through_ratio, run_detectors, tune_threshold
+from ibm_detectors import DETECTORS, evaluate_detectors, pass_through_closeness, run_detectors, tune_threshold
 from ibm_features import past_window_sum
 from ibm_patterns import UNATTRIBUTED, label_rows, parse_patterns
 
@@ -44,10 +44,11 @@ def test_past_window_sum_only_counts_the_window_before_each_row():
     assert got.tolist() == [0.0, 1.0, 2.0, 4.0]          # [t-60, t): row at t=100 sees only the t=50 row
 
 
-def test_pass_through_ratio_is_the_last_day_of_inflow_over_the_outflow():
-    # account 1 receives 90 at t=0, then sends 100 at t=3600: ratio 0.9; a sender with no inflow scores 0
-    src = np.array([0, 1, 5]); dst = np.array([1, 2, 6]); t = np.array([0, 3600, 3600]); paid = np.array([90.0, 100.0, 10.0])
-    assert np.allclose(pass_through_ratio(src, dst, t, paid), [0.0, 0.9, 0.0])
+def test_pass_through_closeness_rewards_inflow_that_matches_the_outflow():
+    # account 1 receives 90 at t=0, then sends 100 at t=3600: closeness 0.9; no inflow, or 5x too much inflow, scores 0
+    src = np.array([0, 1, 5, 7, 8]); dst = np.array([1, 2, 6, 9, 9]); t = np.array([0, 3600, 3600, 0, 3600])
+    paid = np.array([90.0, 100.0, 10.0, 500.0, 100.0])
+    assert np.allclose(pass_through_closeness(src, dst, t, paid), [0.0, 0.9, 0.0, 0.0, 0.0])
 
 
 def test_tuned_threshold_uses_fit_rows_only_and_separates_the_classes():

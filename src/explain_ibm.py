@@ -197,7 +197,7 @@ def main():
     # surrogate tree on validation rows, fidelity on test rows
     alert = score >= threshold
     fit = masks['val']
-    clf = DecisionTreeClassifier(max_depth=8, min_samples_leaf=30, class_weight={False: 1, True: 10}, random_state=0)
+    clf = DecisionTreeClassifier(max_depth=8, min_samples_leaf=10, class_weight={False: 1, True: 10}, random_state=0)  # leaves of >= 10 rows
     clf.fit(X[fit], alert[fit])
     tree = export_tree(clf, X[fit], alert[fit], y[fit], ALL_NAMES)
     tree['fidelity'] = surrogate_fidelity(clf, X, alert, y, test, normal)

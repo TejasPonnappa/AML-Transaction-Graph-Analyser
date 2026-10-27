@@ -25,10 +25,14 @@ def _col(X, name):
     return np.expm1(X[:, ALL_NAMES.index(name)].astype(float))     # features are stored as log1p
 
 
-def pass_through_ratio(src, dst, t, paid):
-    """Amount the sender received in the previous 24 hours divided by what it sends now (capped at 5)."""
+def pass_through_closeness(src, dst, t, paid):
+    """
+    How closely what the sender received in the previous 24 hours matches what it sends now: 1 when the amounts are
+    equal, 0 when nothing came in or the inflow is at least double (or at most zero) the outflow. High means the account
+    is passing money straight through.
+    """
     received = past_window_sum(dst, t, paid, src, t, DAY)
-    return np.minimum(received / np.maximum(paid, 1e-9), 5.0)
+    return np.maximum(0.0, 1.0 - np.abs(received / np.maximum(paid, 1e-9) - 1.0))
 
 
 def detector_scores(X, src, dst, t, paid):
@@ -37,23 +41,28 @@ def detector_scores(X, src, dst, t, paid):
         'fan_out': _col(X, 'sender_out_new_receivers_1d'),
         'fan_in': _col(X, 'receiver_in_new_senders_1d'),
         'cycle': _col(X, 'three_cycle_witnesses'),
-        'pass_through': pass_through_ratio(src, dst, t, paid),
+        'pass_through': pass_through_closeness(src, dst, t, paid),
     }
 
 
 def tune_threshold(score, target, fit_mask):
-    """Threshold with the best F1 against `target` on the fit rows. Candidates are the distinct high score values."""
+    """
+    Threshold with the best F0.5 against `target` on the fit rows (precision counts double, so a badge is not attached to
+    a huge share of ordinary transactions). Candidates are the distinct high score values.
+    """
     s, y = score[fit_mask], target[fit_mask].astype(bool)
     if not y.any():
         return float('inf')
     candidates = np.unique(np.quantile(s[s > 0], np.linspace(0.5, 0.9999, 60))) if (s > 0).any() else np.array([1.0])
-    best, best_f1 = float(candidates[-1]), -1.0
+    best, best_f = float(candidates[-1]), -1.0
+    positives = int(y.sum())
     for thr in candidates:
         flag = s >= thr
         tp = int((flag & y).sum())
-        f1 = 2 * tp / max(int(flag.sum()) + int(y.sum()), 1)
-        if f1 > best_f1:
-            best, best_f1 = float(thr), f1
+        fp = int(flag.sum()) - tp
+        f = 1.25 * tp / max(1.25 * tp + 0.25 * (positives - tp) + fp, 1e-9)
+        if f > best_f:
+            best, best_f = float(thr), f
     return best
 
 
