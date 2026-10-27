@@ -24,10 +24,10 @@ def preprocess_bitcoin_data():
     df_classes = pd.read_csv(CLASSES_PATH)
 
     # Correct Column Naming (Based on Elliptic structure)
-    df_features.rename(columns={0: 'txId', 1: 'time_step'}, inplace=True)
+    df_features = df_features.rename(columns={0: 'txId', 1: 'time_step'})
     
     # CRITICAL FIX: Rename the columns in the edgelist file (txId1 and txId2)
-    df_edges.rename(columns={'txId1': 'source', 'txId2': 'target'}, inplace=True) 
+    df_edges = df_edges.rename(columns={'txId1': 'source', 'txId2': 'target'})
     
     # 2. Prepare Node Features (X)
     
@@ -72,7 +72,8 @@ def preprocess_bitcoin_data():
     df_labels = pd.merge(df_features[['txId']], df_classes, on='txId', how='left')
     
     # Map classes: '1' = Illicit (1), '2' = Licit (0), 'unknown' = Unlabeled (-1)
-    Y = df_labels['class'].replace({'1': 1, '2': 0, 'unknown': -1}).values
+    # map explicitly to ints: replace() leaves an object array on newer pandas, which torch cannot convert
+    Y = df_labels['class'].astype(str).map({'1': 1, '2': 0, 'unknown': -1}).fillna(-1).astype(int).values
     Y = torch.tensor(Y, dtype=torch.long)
     
     print(f"   -> Illicit/Licit/Unknown Split: {torch.sum(Y==1).item():,}/{torch.sum(Y==0).item():,}/{torch.sum(Y==-1).item():,}")

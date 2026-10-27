@@ -80,7 +80,7 @@ def build_past_only_features(df, src, dst):
         bank_mismatch = np.zeros(n)
 
     cols = [np.log1p(paid), np.log1p(received), mismatch, (src == dst).astype(float), bank_mismatch,
-            ts.dt.hour.to_numpy(dtype=float), ts.dt.dayofweek.to_numpy(dtype=float)]
+            ts.dt.hour.to_numpy(dtype=float), ts.dt.day_of_week.to_numpy(dtype=float)]
     cols += [(df['Payment Format'] == f).to_numpy(dtype=float) for f in PAYMENT_FORMATS]
 
     def role(prefix_cols, count, total, since, windows=None):
