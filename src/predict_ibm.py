@@ -70,14 +70,14 @@ def generate_predictions():
     df_raw.columns = [col.upper().replace('-', '_') for col in df_raw.columns]
 
     # UPDATED: Safety check — this assumes row order in the CSV exactly matches
-    # edge order in graph_data.pt. If data_preprocessing.py ever filters, sorts,
+    # edge order in graph_data_ibm.pt. If data_preprocessing_ibm.py ever filters, sorts,
     # or dedupes rows before building edge_index, this silently misaligns
     # scores with the wrong transactions. Fail loudly instead of silently.
     if len(df_raw) != len(scores):
         raise ValueError(
             f"Row count mismatch: raw CSV has {len(df_raw)} rows but model produced "
-            f"{len(scores)} scores. Check that data_preprocessing.py builds edge_index "
-            f"in the same order as amlsim_transactions.csv, with no filtering/dedup in between."
+            f"{len(scores)} scores. Check that data_preprocessing_ibm.py builds edge_index "
+            f"in the same order as HI-Small_Trans.csv, with no filtering/dedup in between."
         )
 
     df_raw['SUSPICION_SCORE'] = scores
