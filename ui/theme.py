@@ -64,6 +64,13 @@ h1, h2, h3, h4 {{ letter-spacing: -0.01em; font-weight: 600; }}
 .stTabs [data-baseweb="tab-list"] {{ gap: 1.5rem; border-bottom: 1px solid {BORDER}; }}
 .stTabs [data-baseweb="tab"] {{ padding-left: 0; padding-right: 0; height: 2.6rem; }}
 [data-testid="stSidebar"] {{ border-right: 1px solid {BORDER}; }}
+/* the view selector in the main area reads as tabs */
+[data-testid="stMain"] [data-testid="stRadio"] div[role="radiogroup"] {{ gap: 1.6rem; border-bottom: 1px solid {BORDER}; padding-bottom: 0; }}
+[data-testid="stMain"] [data-testid="stRadio"] label {{ padding: 0.35rem 0 0.55rem 0; margin: 0; border-bottom: 2px solid transparent; cursor: pointer; }}
+[data-testid="stMain"] [data-testid="stRadio"] label > div:first-child {{ display: none; }}
+[data-testid="stMain"] [data-testid="stRadio"] label p {{ color: {MUTED}; font-size: 0.95rem; }}
+[data-testid="stMain"] [data-testid="stRadio"] label:has(input:checked) {{ border-bottom-color: {ACCENT}; }}
+[data-testid="stMain"] [data-testid="stRadio"] label:has(input:checked) p {{ color: {TEXT}; font-weight: 600; }}
 </style>
 """
 
@@ -154,6 +161,7 @@ COLUMN_LABELS = {
     "SUSPICION_SCORE": "Model score",
     "SPLIT": "Split",
     "STATUS": "Status",
+    "PATTERN": "Pattern",
     "txId": "Transaction ID",
     "TimeStep": "Time step",
     "class": "Label",
@@ -184,7 +192,7 @@ def _column_config(columns, currency, time_kind):
 
 
 def data_table(df, *, key, file_name, threshold=None, currency="localized", time_kind="datetime",
-               height=420, max_rows=1000, label_yes="Yes"):
+               height=420, max_rows=1000, label_yes="Yes", compact=False):
     """Sortable table with formatted columns, a status badge and a CSV export.
 
     `df` should already be sorted the way it should appear. Only the first
@@ -213,12 +221,16 @@ def data_table(df, *, key, file_name, threshold=None, currency="localized", time
         if export[col].dtype == object:
             export[col] = export[col].map(
                 lambda v: "'" + v if isinstance(v, str) and v[:1] in ("=", "+", "-", "@") else v)
+    csv = export.to_csv(index=False).encode("utf-8")
+    if compact:                                   # narrow column: caption above, full-width button below
+        st.caption(f"Showing {len(view):,} of {len(df):,} rows.")
+        st.download_button("Export CSV", csv, file_name=file_name, mime="text/csv", key=f"dl_{key}",
+                           use_container_width=True)
+        return
     left, right = st.columns([5, 1])
     left.caption(f"Showing {len(view):,} of {len(df):,} rows. Click a column header to sort.")
-    right.download_button(
-        "Export CSV", export.to_csv(index=False).encode("utf-8"),
-        file_name=file_name, mime="text/csv", key=f"dl_{key}", use_container_width=True,
-    )
+    right.download_button("Export CSV", csv, file_name=file_name, mime="text/csv", key=f"dl_{key}",
+                          use_container_width=True)
 
 
 def score_histogram(scores, threshold, bins=50):
