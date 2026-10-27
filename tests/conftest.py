@@ -40,25 +40,6 @@ def _accounts(rng, n, pool):
 
 
 @pytest.fixture
-def amlsim_csv(tmp_path):
-    """40 rows, 12 fraud; lowercase hyphenated headers to exercise normalisation."""
-    rng = np.random.default_rng(1)
-    n = 40
-    fraud = np.zeros(n, dtype=int)
-    fraud[rng.choice(n, 12, replace=False)] = 1
-    df = pd.DataFrame({
-        "sender-account-id": _accounts(rng, n, 9),
-        "receiver-account-id": _accounts(rng, n, 9),
-        "tx-amount": rng.uniform(5, 5000, n).round(2),
-        "tx-type": rng.choice(["TRANSFER", "DEPOSIT", "PAYMENT", "WEIRD"], n),
-        "is-fraud": fraud,
-    })
-    path = tmp_path / "amlsim.csv"
-    df.to_csv(path, index=False)
-    return path, df
-
-
-@pytest.fixture
 def ibm_csv(tmp_path):
     """40 rows, unique shuffled timestamps, 10 laundering rows."""
     rng = np.random.default_rng(2)

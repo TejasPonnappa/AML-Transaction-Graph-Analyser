@@ -1,7 +1,6 @@
 import numpy as np
 
-from baselines import (account_aggregate_features, evaluate, pair_count_feature, temporal_masks,
-                       tune_threshold)
+from baselines import account_aggregate_features, evaluate, pair_count_feature, tune_threshold
 
 
 def test_aggregates_use_train_rows_only_and_drop_self_for_train_rows():
@@ -34,14 +33,6 @@ def test_pair_count_is_leave_one_out_for_train_rows():
     train = np.array([True, True, False])
     counts = pair_count_feature(src, dst, train, n_accounts=2)[:, 0]
     assert np.allclose(counts, [np.log1p(1), np.log1p(1), np.log1p(2)])
-
-
-def test_temporal_masks_are_chronological_and_cover_everything():
-    key = np.array([5, 1, 3, 2, 4, 0, 9, 8, 7, 6])
-    m = temporal_masks(key)
-    assert (m['train'] | m['val'] | m['test']).all()
-    assert not (m['train'] & m['val']).any() and not (m['val'] & m['test']).any()
-    assert key[m['train']].max() < key[m['val']].min() <= key[m['val']].max() < key[m['test']].min()
 
 
 def test_tuned_threshold_and_metrics():

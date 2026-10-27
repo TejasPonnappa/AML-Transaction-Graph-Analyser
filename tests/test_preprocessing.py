@@ -2,7 +2,6 @@ import pandas as pd
 import pytest
 import torch
 
-import data_preprocessing as amlsim
 import data_preprocessing_ibm as ibm
 from ibm_features import FEATURE_NAMES
 
@@ -21,49 +20,12 @@ def _assert_masks(data, n):
     assert tr.any() and va.any() and te.any()
 
 
-def _run_amlsim(monkeypatch, tmp_path, csv):
-    out = tmp_path / "out" / "g.pt"
-    monkeypatch.setattr(amlsim, "RAW_DATA_PATH", str(csv))
-    monkeypatch.setattr(amlsim, "PROCESSED_DATA_PATH", str(out))
-    amlsim.preprocess_amlsim_data()
-    return torch.load(out, weights_only=False)
-
-
 def _run_ibm(monkeypatch, tmp_path, csv):
     out = tmp_path / "out" / "g_ibm.pt"
     monkeypatch.setattr(ibm, "RAW_TRANS_PATH", str(csv))
     monkeypatch.setattr(ibm, "PROCESSED_DATA_PATH", str(out))
     ibm.preprocess_ibm_data()
     return torch.load(out, weights_only=False)
-
-
-def test_amlsim_edges_labels_and_attr(monkeypatch, tmp_path, amlsim_csv):
-    csv, df = amlsim_csv
-    data = _run_amlsim(monkeypatch, tmp_path, csv)
-    nm = _node_map(df["sender-account-id"], df["receiver-account-id"])
-    assert data.edge_index.tolist() == [
-        [nm[a] for a in df["sender-account-id"]],
-        [nm[a] for a in df["receiver-account-id"]],
-    ]
-    assert data.edge_attr.shape == (len(df), 2)
-    assert data.y.tolist() == df["is-fraud"].astype(float).tolist()
-    assert data.x.shape[0] == len(nm)
-    assert torch.isfinite(data.x).all() and torch.isfinite(data.edge_attr).all()
-
-
-def test_amlsim_masks(monkeypatch, tmp_path, amlsim_csv):
-    csv, df = amlsim_csv
-    _assert_masks(_run_amlsim(monkeypatch, tmp_path, csv), len(df))
-
-
-def test_amlsim_missing_column(monkeypatch, tmp_path, amlsim_csv):
-    csv, df = amlsim_csv
-    bad = tmp_path / "bad.csv"
-    df.drop(columns=["tx-type"]).to_csv(bad, index=False)
-    monkeypatch.setattr(amlsim, "RAW_DATA_PATH", str(bad))
-    monkeypatch.setattr(amlsim, "PROCESSED_DATA_PATH", str(tmp_path / "o" / "g.pt"))
-    with pytest.raises(ValueError, match="TX_TYPE"):
-        amlsim.preprocess_amlsim_data()
 
 
 def test_ibm_edges_labels_and_attr(monkeypatch, tmp_path, ibm_csv):

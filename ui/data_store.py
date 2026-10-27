@@ -26,13 +26,6 @@ EDGE_PROJECTS = {
         raw_time='Timestamp',
         time_kind='datetime',
     ),
-    'amlsim': dict(
-        scores='outputs/suspicion_scores.csv',
-        graph='data/processed/graph_data.pt',
-        raw='data/raw/amlsim_transactions.csv',
-        raw_time='TIMESTAMP',
-        time_kind='step',
-    ),
 }
 ELLIPTIC = dict(
     scores='outputs/bitcoin_predictions.csv',

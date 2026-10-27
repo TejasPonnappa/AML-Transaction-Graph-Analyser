@@ -5,7 +5,6 @@ import pytest
 from conftest import make_graph
 
 CASES = [
-    ("predict", "data/processed/graph_data.pt"),
     ("predict_ibm", "data/processed/graph_data_ibm.pt"),
     ("predict_bitcoin", "data/processed/graph_data_bitcoin.pt"),
 ]

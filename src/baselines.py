@@ -2,7 +2,6 @@
 Tree-model baselines on the same splits as the GNNs, to show how much a graph model adds
 and how much of each GNN score comes from leakage or trivial separability.
 
-    python src/baselines.py amlsim   [--seeds 3]
     python src/baselines.py ibm      [--seeds 3] [--neg-frac 0.1]
     python src/baselines.py elliptic [--seeds 3]
 
@@ -27,8 +26,6 @@ from sklearn.metrics import average_precision_score, roc_auc_score
 
 from training_utils import tune_threshold
 
-AMLSIM = dict(raw='data/raw/amlsim_transactions.csv', graph='data/processed/graph_data.pt',
-              metrics='outputs/metrics.json')
 IBM = dict(raw='data/raw/ibm_aml/HI-Small_Trans.csv', graph='data/processed/graph_data_ibm.pt',
            metrics='outputs/metrics_ibm.json')
 ELLIPTIC = dict(features='data/raw/elliptic_txs_features.csv', edges='data/raw/elliptic_txs_edgelist.csv',
@@ -114,34 +111,6 @@ def load_masks(graph_path, n_rows):
         if len(m) != n_rows:
             raise ValueError(f"{graph_path}: {k}_mask has {len(m)} rows, expected {n_rows}.")
     return masks, data.y.cpu().numpy()
-
-
-def temporal_masks(order_key, fractions=(0.7, 0.85)):
-    """Chronological 70/15/15 split by a sortable key (stable, so ties keep file order)."""
-    n = len(order_key)
-    order = np.argsort(np.asarray(order_key), kind='stable')
-    cut1, cut2 = int(n * fractions[0]), int(n * fractions[1])
-    masks = {k: np.zeros(n, dtype=bool) for k in ('train', 'val', 'test')}
-    masks['train'][order[:cut1]] = True
-    masks['val'][order[cut1:cut2]] = True
-    masks['test'][order[cut2:]] = True
-    return masks
-
-
-def build_amlsim():
-    df = pd.read_csv(AMLSIM['raw'])
-    df.columns = [c.upper() for c in df.columns]
-    (src, dst), n_acc = factorize_accounts(df['SENDER_ACCOUNT_ID'], df['RECEIVER_ACCOUNT_ID'])
-    amount = df['TX_AMOUNT'].to_numpy(dtype=float)
-    y = df['IS_FRAUD'].astype(str).str.lower().isin(['1', 'true']).to_numpy().astype(int)
-    splits = {'random (as GNN)': load_masks(AMLSIM['graph'], len(df))[0],
-              'temporal': temporal_masks(df['TIMESTAMP'].to_numpy())}
-
-    def features(masks):
-        base = np.column_stack([np.log1p(amount), (amount < 20).astype(float)]).astype(np.float32)
-        return np.hstack([base, account_aggregate_features(src, dst, amount, masks['train'], n_acc),
-                          pair_count_feature(src, dst, masks['train'], n_acc)])
-    return y, splits, features
 
 
 def build_ibm(feature_set='past'):
@@ -345,7 +314,7 @@ def print_per_step(per_step):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('dataset', choices=['amlsim', 'ibm', 'elliptic'])
+    parser.add_argument('dataset', choices=['ibm', 'elliptic'])
     parser.add_argument('--seeds', type=int, default=3)
     parser.add_argument('--models', default='hgb,rf', help='comma list from: hgb, rf')
     parser.add_argument('--ibm-features', choices=['past', 'past_graph', 'train_agg'], default='past',
@@ -364,18 +333,15 @@ def main():
         print_per_step(per_step)
         payload = dict(results=results, per_step=per_step)
     else:
-        if args.dataset == 'amlsim':
-            builder, cfg = build_amlsim, AMLSIM
-        else:
-            builder, cfg = (lambda: build_ibm(args.ibm_features)), IBM
-        y, splits, features = builder()
+        cfg = IBM
+        y, splits, features = build_ibm(args.ibm_features)
         results = run_edge_dataset(args.dataset, y, splits, features, args.seeds, models, args.neg_frac)
         print_table(results, reported_gnn(cfg['metrics']))
         payload = dict(results=results)
 
     payload.update(dataset=args.dataset, seeds=args.seeds, neg_frac=args.neg_frac,
                    runtime_seconds=time.time() - t0, gnn_reported=reported_gnn(
-                       {'amlsim': AMLSIM, 'ibm': IBM, 'elliptic': ELLIPTIC}[args.dataset]['metrics']))
+                       {'ibm': IBM, 'elliptic': ELLIPTIC}[args.dataset]['metrics']))
     tag = f'_{args.ibm_features}' if args.dataset == 'ibm' and args.ibm_features != 'train_agg' else ''
     out = f'outputs/baselines_{args.dataset}{tag}.json'
     with open(out, 'w') as f:
